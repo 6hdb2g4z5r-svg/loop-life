@@ -50,7 +50,7 @@ button{flex:1;padding:14px;border:0;border-radius:12px;font:600 16px/1 inherit;f
   function fetchText(u) { return withTimeout(fetch(u, { cache: 'no-store' }), 60000).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); }); }
   function receiverErr(t) { if (t.length < 200 && t.trim()[0] === '{') { try { var j = JSON.parse(t); if (j.ok === false) return j.error || 'erreur'; } catch (e) {} } return null; }
 
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(function (r) { r.update().catch(function () {}); }).catch(function () {});
 
   function putCache(name, text) { if (!window.caches) return Promise.resolve(); return caches.open(DATA_CACHE).then(function (c) { return c.put('/__ll/' + name, new Response(text, { headers: { 'content-type': 'text/plain' } })); }).catch(function () {}); }
   function getCache(name) { if (!window.caches) return Promise.resolve(null); return caches.open(DATA_CACHE).then(function (c) { return c.match('/__ll/' + name); }).then(function (r) { return r ? r.text() : null; }).catch(function () { return null; }); }
@@ -67,7 +67,7 @@ button{flex:1;padding:14px;border:0;border-radius:12px;font:600 16px/1 inherit;f
   function cached() { return Promise.all([getCache('template'), getCache('dash')]).then(function (x) { if (!x[0] || !x[1]) throw new Error('no cache'); return { t: x[0], d: x[1], fresh: false }; }); }
 
   function render(pack) {
-    return fetch('shim.js').then(function (r) { return r.text(); }).then(function (shim) {
+    return fetch('shim.js', { cache: 'no-cache' }).then(function (r) { return r.text(); }).then(function (shim) {
       var gear = '<button id="ll-gear" aria-label="Réglages" onclick="localStorage.setItem(\'ll_setup\',\'1\');location.reload()"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>';
       var head = '<script>' + shim.replace(/<\/script/gi, '<\\/script') + '<\/script>';
       var html = pack.t.replace('/*DATA*/', function () { return pack.d; });
