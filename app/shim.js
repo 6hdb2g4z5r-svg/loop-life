@@ -281,7 +281,7 @@
 
   /* --------------------------------------------------------------- mcp */
   // the loader starts from its cached copy and reloads itself when the receiver has newer data
-  function refetchDash() { location.reload(); }
+  function refetchDash() { lastCheck = 0; freshCheck(); }
   function dispatch() {
     if (!CFG.ghToken || !CFG.ghRepo) return Promise.resolve(false);
     return fetch('https://api.github.com/repos/' + CFG.ghRepo + '/actions/workflows/refresh.yml/dispatches', {
@@ -302,6 +302,34 @@
     listTools: function () { return Promise.resolve([]); },
     server: function () { return Promise.resolve(new Proxy({}, { get: function (_, t) { return function (i) { return MCP.callTool('', t, i).then(function (r) { return r.payload; }); }; } })); }
   });
+
+  /* ------------------------------------------------- freshness check */
+  // The loader shows the last cached copy instantly; here we fetch the receiver's copy and
+  // reload when it is newer. Runs at start and every time the app comes back to the foreground.
+  var checking = false, lastCheck = 0;
+  function freshCheck() {
+    if (checking || !window.caches || Date.now() - lastCheck < 20000) return;
+    checking = true; lastCheck = Date.now();
+    var ctl = new AbortController(), to = setTimeout(function () { ctl.abort(); }, 90000);
+    Promise.all(['dash', 'template'].map(function (n) {
+      return fetch(rq({ action: 'state', name: n }), { cache: 'no-store', signal: ctl.signal }).then(function (r) { return r.text(); });
+    })).then(function (x) {
+      if (x[1].indexOf('/*DATA*/') < 0) return;
+      JSON.parse(x[0]);
+      return caches.open('ll-data-v1').then(function (c) {
+        return Promise.all([c.match('/__ll/dash'), c.match('/__ll/template')]).then(function (m) {
+          return Promise.all(m.map(function (r) { return r ? r.text() : ''; }));
+        }).then(function (old) {
+          if (old[0] === x[0] && old[1] === x[1]) return;
+          var put = function (n, t) { return c.put('/__ll/' + n, new Response(t, { headers: { 'content-type': 'text/plain' } })); };
+          return Promise.all([put('dash', x[0]), put('template', x[1])]).then(function () { location.reload(); });
+        });
+      });
+    }).catch(function () {}).then(function () { clearTimeout(to); checking = false; });
+  }
+  setTimeout(freshCheck, 1500);
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') freshCheck(); });
+  window.addEventListener('pageshow', function () { freshCheck(); });
 
   var CAPS = { db: DB, sample: sample, mcp: MCP };
   window.claude = freeze({ use: function (name) { return new Promise(function (res) { setTimeout(function () { res(CAPS[name] || null); }, 0); }); } });

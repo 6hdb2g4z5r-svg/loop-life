@@ -47,7 +47,7 @@ button{flex:1;padding:14px;border:0;border-radius:12px;font:600 16px/1 inherit;f
   function cfg() { try { return JSON.parse(localStorage.getItem(CK) || '{}'); } catch (e) { return {}; } }
   function url(c, params) { var q = new URLSearchParams(Object.assign({ key: c.receiverKey }, params)); return c.receiverUrl + (c.receiverUrl.indexOf('?') < 0 ? '?' : '&') + q; }
   function withTimeout(p, ms) { return Promise.race([p, new Promise(function (_, rej) { setTimeout(function () { rej(new Error('timeout')); }, ms); })]); }
-  function fetchText(u) { return withTimeout(fetch(u, { cache: 'no-store' }), 25000).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); }); }
+  function fetchText(u) { return withTimeout(fetch(u, { cache: 'no-store' }), 60000).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); }); }
   function receiverErr(t) { if (t.length < 200 && t.trim()[0] === '{') { try { var j = JSON.parse(t); if (j.ok === false) return j.error || 'erreur'; } catch (e) {} } return null; }
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});
@@ -165,8 +165,7 @@ button{flex:1;padding:14px;border:0;border-radius:12px;font:600 16px/1 inherit;f
   $('bootmsg').textContent = 'Synchronisation…';
   // instant start from the last copy when we have one; fetch fresh in the background
   cached().then(function (pack) {
-    render(pack);
-    remote(c).then(function (fresh) { if (fresh.d !== pack.d || fresh.t !== pack.t) location.reload(); }).catch(function () {});
+    render(pack);   // shim.js then checks the receiver and reloads if newer
   }, function () {
     return remote(c).then(render).catch(function (e) {
       if (/bad key/.test(e.message)) return setup(c, 'Clé du receiver refusée.');
