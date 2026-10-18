@@ -7,7 +7,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 W="${RUNNER_TEMP:-/tmp}/looplife"
 rm -rf "$W" && mkdir -p "$W/scripts"
-cp "$HERE"/scripts/* "$W/scripts/"
+cp "$HERE"/scripts/*.py "$HERE"/scripts/*.js "$W/scripts/"
 cd "$W"
 umask 077
 printf '%s\n%s\n' "$RECEIVER_URL" "$RECEIVER_KEY" > receiver.txt

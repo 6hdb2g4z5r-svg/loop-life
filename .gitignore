@@ -1,3 +1,5 @@
 *.txt
 work/
 app/icons/
+__pycache__/
+*.pyc
