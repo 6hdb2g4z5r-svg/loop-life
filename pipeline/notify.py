@@ -81,7 +81,7 @@ def push_send(caption):
     ok, dead = 0, []
     for ep, sub in subs.items():
         try:
-            webpush(subscription_info=sub, data=payload, vapid_private_key=vapid, vapid_claims={'sub': APP_URL}, ttl=6 * 3600)
+            webpush(subscription_info=sub, data=payload, vapid_private_key=vapid, vapid_claims={'sub': 'mailto:6hdb2g4z5r-svg@users.noreply.github.com'}, ttl=6 * 3600)
             ok += 1
         except WebPushException as e:
             code = getattr(e.response, 'status_code', None)
