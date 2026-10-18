@@ -68,7 +68,7 @@ button{flex:1;padding:14px;border:0;border-radius:12px;font:600 16px/1 inherit;f
 
   function render(pack) {
     return fetch('shim.js').then(function (r) { return r.text(); }).then(function (shim) {
-      var gear = '<div id="ll-gear" title="Réglages" style="position:fixed;left:calc(10px + env(safe-area-inset-left));bottom:calc(98px + env(safe-area-inset-bottom));width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,.07);color:rgba(255,255,255,.45);display:flex;align-items:center;justify-content:center;font:16px/1 system-ui;z-index:2147483647;cursor:pointer;-webkit-tap-highlight-color:transparent" onclick="localStorage.setItem(\'ll_setup\',\'1\');location.reload()">⚙</div>';
+      var gear = '<div id="ll-gear" title="Réglages" style="position:fixed;left:calc(10px + env(safe-area-inset-left));bottom:calc(86px + max(6px,calc(env(safe-area-inset-bottom) - 14px)));width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,.07);color:rgba(255,255,255,.45);display:flex;align-items:center;justify-content:center;font:16px/1 system-ui;z-index:2147483647;cursor:pointer;-webkit-tap-highlight-color:transparent" onclick="localStorage.setItem(\'ll_setup\',\'1\');location.reload()">⚙</div>';
       var head = '<script>' + shim.replace(/<\/script/gi, '<\\/script') + '<\/script>';
       var html = pack.t.replace('/*DATA*/', function () { return pack.d; });
       var i = html.search(/<script[\s>]/i);
@@ -76,7 +76,14 @@ button{flex:1;padding:14px;border:0;border-radius:12px;font:600 16px/1 inherit;f
       // keep the PWA metas so iOS treats the rendered page as the standalone app
       var metas = '<meta name="theme-color" content="#0c1117"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><link rel="manifest" href="manifest.json"><link rel="apple-touch-icon" href="icons/apple-touch-icon.png">';
       html = /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, function (m) { return m + metas; }) : metas + html;
-      html = /<\/body>/i.test(html) ? html.replace(/<\/body>(?![\s\S]*<\/body>)/i, gear + '</body>') : html + gear;
+      // iPhone app layout fixes: opaque header pinned under the status bar, tab bar lowered and backed so no text shows beneath it
+      var fix = '<style id="ll-pwa-fix">' +
+        '.top{position:sticky!important;top:0!important;z-index:30!important;margin:calc(-1 * env(safe-area-inset-top,0px)) -16px 0!important;padding:calc(env(safe-area-inset-top,0px) + 10px) 16px 10px!important;background:var(--top)!important;box-shadow:0 10px 14px -6px var(--top)!important}' +
+        '.nav{z-index:30!important;padding-bottom:max(6px,calc(env(safe-area-inset-bottom,0px) - 14px))!important;background:linear-gradient(to bottom,transparent 0,var(--bg) 26px)!important}' +
+        '.nav .in{background:var(--card)!important;backdrop-filter:none!important}' +
+        '.app{padding-bottom:calc(96px + var(--lift))!important}' +
+        '</style>';
+      html = /<\/body>/i.test(html) ? html.replace(/<\/body>(?![\s\S]*<\/body>)/i, fix + gear + '</body>') : html + fix + gear;
       document.open(); document.write(html); document.close();
     });
   }
