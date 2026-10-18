@@ -1,0 +1,39 @@
+name: refresh
+on:
+  schedule:
+    - cron: '*/20 * * * *'
+  workflow_dispatch:
+concurrency:
+  group: refresh
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: Fonts and Pillow
+        run: |
+          sudo apt-get install -y -qq fonts-inter fonts-dejavu-core >/dev/null || true
+          pip install -q pillow
+      - name: Check pipeline scripts
+        id: chk
+        run: |
+          for f in refresh.py hae2rows.py compute.py tg_cards.py tg_notify.py dayplan.js; do
+            [ -f pipeline/scripts/$f ] || { echo "missing pipeline/scripts/$f"; echo "ok=0" >> $GITHUB_OUTPUT; exit 0; }
+          done
+          echo "ok=1" >> $GITHUB_OUTPUT
+      - name: Refresh
+        if: steps.chk.outputs.ok == '1'
+        env:
+          RECEIVER_URL: ${{ secrets.RECEIVER_URL }}
+          RECEIVER_KEY: ${{ secrets.RECEIVER_KEY }}
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT: ${{ secrets.TG_CHAT }}
+        run: bash pipeline/run.sh
