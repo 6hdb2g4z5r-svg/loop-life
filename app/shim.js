@@ -8,7 +8,18 @@
   var CFG = {};
   try { CFG = JSON.parse(localStorage.getItem('ll_cfg') || '{}'); } catch (e) {}
   var URL_ = CFG.receiverUrl, KEY = CFG.receiverKey;
-  var MODELS = Object.assign({ quick: 'claude-haiku-5-5', default: 'claude-sonnet-5-5', complex: 'claude-opus-5-5' }, CFG.models || {});
+  // model ids typed on the phone can arrive capitalised or with spaces (iOS autocapitalise): normalise, fall back to defaults
+  var MDEF = { quick: 'claude-haiku-5-5', default: 'claude-sonnet-5-5', complex: 'claude-opus-5-5' }, MODELS = {};
+  Object.keys(MDEF).forEach(function (k) { var v = String((CFG.models || {})[k] || '').trim().toLowerCase(); MODELS[k] = /^claude-[a-z0-9.\-]+$/.test(v) ? v : MDEF[k]; });
+  if (CFG.anthropicKey) CFG.anthropicKey = String(CFG.anthropicKey).trim();
+  var lastToast = 0;
+  function apiToast(msg) {
+    // show the real Claude API error once in a while, so a bad key / no credit / wrong model is visible
+    if (Date.now() - lastToast < 20000) return; lastToast = Date.now();
+    var d = document.getElementById('ll-apierr');
+    if (!d) { d = document.createElement('div'); d.id = 'll-apierr'; d.style.cssText = 'position:fixed;left:12px;right:12px;top:calc(env(safe-area-inset-top,0px) + 10px);z-index:60;background:#3d2a1a;color:#ffd2a8;border:1px solid #6b4a2a;border-radius:12px;padding:10px 14px;font:14px/1.4 -apple-system,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.4)'; d.onclick = function () { d.remove(); }; (document.body || document.documentElement).appendChild(d); }
+    d.textContent = 'Coach IA : ' + msg; clearTimeout(d._t); d._t = setTimeout(function () { d.remove(); }, 12000);
+  }
 
   function rq(params) {
     var q = new URLSearchParams(Object.assign({ key: KEY }, params));
@@ -262,6 +273,7 @@
       })
       .catch(function (e) {
         if (e && e.name === 'AbortError') throw err('aborted', 'aborted');
+        if (!(e && e.code === 'aborted')) apiToast(e && e.code === 'not_granted' && /settings/.test(e.message || '') ? 'ajoute ta clé API Claude dans les réglages (bouton ⚙︎).' : String(e && e.message || e).slice(0, 220));
         if (e && e.code) throw e;
         throw err('unavailable', String(e && e.message || e));
       });

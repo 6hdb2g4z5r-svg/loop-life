@@ -116,11 +116,11 @@ button{flex:1;padding:14px;border:0;border-radius:12px;font:600 16px/1 inherit;f
       '<div class="wrap"><form id="f" autocomplete="off"><div class="ring"></div><h1>Loop Life</h1><p class="sub">Réglages enregistrés uniquement sur cet appareil.</p>' +
       '<label>URL du receiver</label><input id="u" type="url" required placeholder="https://script.google.com/macros/s/…/exec">' +
       '<label>Clé du receiver</label><input id="k" type="password" required>' +
-      '<label>Clé API Claude <span style="text-transform:none;letter-spacing:0">(coach IA, optionnel)</span></label><input id="a" type="password" placeholder="sk-ant-…"><div class="hint">Fixe une limite de dépense mensuelle dans la Claude Console.</div>' +
+      '<label>Clé API Claude <span style="text-transform:none;letter-spacing:0">(coach IA, optionnel)</span></label><input id="a" type="password" placeholder="sk-ant-…" autocapitalize="off" autocorrect="off" spellcheck="false"><div class="hint">Fixe une limite de dépense mensuelle dans la Claude Console.</div><button type="button" class="sec" id="atest" style="width:100%;margin-top:8px">Tester le coach IA</button><div class="hint" id="ast"></div>' +
       '<details><summary>Avancé</summary>' +
       '<label>Jeton GitHub <span style="text-transform:none;letter-spacing:0">(Synchro instantanée, optionnel)</span></label><input id="g" type="password" placeholder="github_pat_…"><div class="hint">Jeton fine-grained limité au dépôt, permission « Actions : read and write ».</div>' +
       '<label>Dépôt GitHub</label><input id="r" placeholder="propriétaire/loop-life">' +
-      '<label>Modèle rapide</label><input id="m1"><label>Modèle par défaut</label><input id="m2"><label>Modèle complexe</label><input id="m3">' +
+      '<label>Modèle rapide</label><input id="m1" autocapitalize="off" autocorrect="off" spellcheck="false"><label>Modèle par défaut</label><input id="m2" autocapitalize="off" autocorrect="off" spellcheck="false"><label>Modèle complexe</label><input id="m3" autocapitalize="off" autocorrect="off" spellcheck="false">' +
       '</details>' +
       '<div class="notif"><label>Notifications</label><button type="button" class="sec" id="nbtn" style="width:100%">Activer les notifications</button><div class="hint" id="nst"></div></div>' +
       '<div class="status" id="st"></div><div class="row">' + (c.receiverUrl ? '<button type="button" class="sec" id="cancel">Annuler</button>' : '') + '<button class="pri" type="submit">Enregistrer</button></div></form></div>';
@@ -129,6 +129,17 @@ button{flex:1;padding:14px;border:0;border-radius:12px;font:600 16px/1 inherit;f
     $('r').value = c.ghRepo || DEFAULT_REPO; $('m1').value = m.quick || 'claude-haiku-5-5'; $('m2').value = m.default || 'claude-sonnet-5-5'; $('m3').value = m.complex || 'claude-opus-5-5';
     if (note) { $('st').textContent = note; $('st').className = 'status bad'; }
     setupNotif(c);
+    $('atest').onclick = function () {
+      var key = $('a').value.trim(), ms = [$('m1').value, $('m2').value, $('m3').value].map(function (v) { return v.trim().toLowerCase(); });
+      if (!key) { $('ast').textContent = 'Aucune clé API saisie.'; return; }
+      $('ast').textContent = 'Test en cours…';
+      Promise.all(ms.map(function (m) {
+        return fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+          body: JSON.stringify({ model: m, max_tokens: 5, messages: [{ role: 'user', content: 'ok' }] }) })
+          .then(function (r) { return r.text().then(function (t) { if (r.ok) return m + ' : OK'; var x = t; try { x = JSON.parse(t).error.message; } catch (e) {} return m + ' : erreur ' + r.status + ' (' + x + ')'; }); })
+          .catch(function (e) { return m + ' : réseau (' + e.message + ')'; });
+      })).then(function (res) { $('ast').innerHTML = res.map(function (s) { return s.replace(/</g, '&lt;'); }).join('<br>'); });
+    };
     if ($('cancel')) $('cancel').onclick = function () { localStorage.removeItem('ll_setup'); location.reload(); };
     $('f').onsubmit = function (ev) {
       ev.preventDefault();
