@@ -285,7 +285,7 @@
   function dispatch() {
     if (!CFG.ghToken || !CFG.ghRepo) return Promise.resolve(false);
     return fetch('https://api.github.com/repos/' + CFG.ghRepo + '/actions/workflows/refresh.yml/dispatches', {
-      method: 'POST', headers: { Authorization: 'Bearer ' + CFG.ghToken, Accept: 'application/vnd.github+json' }, body: JSON.stringify({ ref: 'main' })
+      method: 'POST', headers: { Authorization: 'Bearer ' + CFG.ghToken, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' }, body: JSON.stringify({ ref: 'main' })
     }).then(function (r) { return r.status === 204; }).catch(function () { return false; });
   }
   var MCP = freeze({
