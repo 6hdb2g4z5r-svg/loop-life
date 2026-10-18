@@ -290,7 +290,14 @@
   sample.json = function (input, opts) {
     return sample(input, opts).then(function (r) {
       try { return parseJSON(r.text); }
-      catch (e) { apiToast(r.truncated ? 'réponse coupée (trop longue). Réessaie.' : 'réponse illisible du modèle ' + r.modelApplied + '. Réessaie.'); throw e; }
+      catch (e) {
+        apiToast(r.truncated ? 'réponse coupée (trop longue). Réessaie.' : 'réponse illisible du modèle ' + r.modelApplied + '. Réessaie.');
+        try {  // keep the failed reply on the owner's receiver for diagnosis
+          var p = typeof input === 'string' ? input : JSON.stringify(input);
+          fetch(rq({ store: 'ai_debug' }), { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ ts: new Date().toISOString(), model: r.modelApplied, tier: r.modelTierApplied, truncated: r.truncated, len: r.text.length, prompt: p.slice(0, 600), promptLen: p.length, head: r.text.slice(0, 1500), tail: r.text.slice(-1500) }) }).catch(function () {});
+        } catch (x) {}
+        throw e;
+      }
     });
   };
   sample.limits = function () { return Promise.resolve(LIM); };
