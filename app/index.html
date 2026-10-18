@@ -68,7 +68,7 @@ button{flex:1;padding:14px;border:0;border-radius:12px;font:600 16px/1 inherit;f
 
   function render(pack) {
     return fetch('shim.js').then(function (r) { return r.text(); }).then(function (shim) {
-      var gear = '<div id="ll-gear" title="Réglages" style="position:fixed;left:calc(10px + env(safe-area-inset-left));bottom:calc(10px + env(safe-area-inset-bottom));width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.07);color:rgba(255,255,255,.45);display:flex;align-items:center;justify-content:center;font:16px/1 system-ui;z-index:2147483647;cursor:pointer;-webkit-tap-highlight-color:transparent" onclick="localStorage.setItem(\'ll_setup\',\'1\');location.reload()">⚙</div>';
+      var gear = '<div id="ll-gear" title="Réglages" style="position:fixed;left:calc(10px + env(safe-area-inset-left));bottom:calc(98px + env(safe-area-inset-bottom));width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,.07);color:rgba(255,255,255,.45);display:flex;align-items:center;justify-content:center;font:16px/1 system-ui;z-index:2147483647;cursor:pointer;-webkit-tap-highlight-color:transparent" onclick="localStorage.setItem(\'ll_setup\',\'1\');location.reload()">⚙</div>';
       var head = '<script>' + shim.replace(/<\/script/gi, '<\\/script') + '<\/script>';
       var html = pack.t.replace('/*DATA*/', function () { return pack.d; });
       var i = html.search(/<script[\s>]/i);
