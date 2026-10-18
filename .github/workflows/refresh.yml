@@ -21,7 +21,7 @@ jobs:
       - name: Fonts and Pillow
         run: |
           sudo apt-get install -y -qq fonts-inter fonts-dejavu-core >/dev/null || true
-          pip install -q pillow
+          pip install -q pillow pywebpush
       - name: Check pipeline scripts
         id: chk
         run: |

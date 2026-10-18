@@ -44,7 +44,8 @@ if [ "${n:-0}" != 0 ] || [ ! -s prev.html ]; then
   echo "dash stored: $(post dash dash.json)"
 fi
 
-# 5. Telegram cards
+# 5. Notifications (iPhone push once subscribed, else Telegram)
+python3 "$HERE/notify.py" --ensure-vapid || true
 python3 - <<'PY'
 import json, subprocess, os, datetime as dt
 U, K = open('receiver.txt').read().split()
@@ -58,9 +59,9 @@ today = dt.datetime.now(dt.timezone.utc).date().isoformat()
 json.dump({'rec': blob('db_recai').get(today) or {}, 'prof': blob('db_settings').get('profile') or {}}, open('plan.json', 'w'))
 PY
 if [ "${n:-0}" = 0 ]; then
-  [ -s prev.html ] && python3 -I scripts/tg_notify.py prev.html - tg.txt --empty || true
+  [ -s prev.html ] && python3 "$HERE/notify.py" tg_notify.py prev.html - tg.txt --empty || true
 elif [ -s prev.html ]; then
-  python3 -I scripts/tg_notify.py prev.html dash.json tg.txt plan.json || echo "telegram step failed"
+  python3 "$HERE/notify.py" tg_notify.py prev.html dash.json tg.txt plan.json || echo "telegram step failed"
 fi
 python3 -c "import json,datetime as d;D=json.load(open('dash.json'));t=d.datetime.utcnow().date().isoformat();x=D['days'].get(t,{});print('today',t,'rec',x.get('rec'),'sleep',x.get('sleep'),'strain',x.get('strain'))" || true
 rm -f receiver.txt tg.txt
