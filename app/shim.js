@@ -240,7 +240,7 @@
         return fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST', signal: opts.signal,
           headers: { 'content-type': 'application/json', 'x-api-key': CFG.anthropicKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-          body: JSON.stringify({ model: model, max_tokens: opts.maxTokens || 4096, stream: true, messages: messages })
+          body: JSON.stringify({ model: model, max_tokens: opts.maxTokens || 16000, stream: true, messages: messages })
         });
       })
       .then(function (r) {
@@ -287,7 +287,12 @@
     for (var i = 0; i < cands.length; i++) try { return JSON.parse(cands[i][1]); } catch (e) {}
     throw err('invalid_output', 'reply was not valid JSON', t);
   }
-  sample.json = function (input, opts) { return sample(input, opts).then(function (r) { return parseJSON(r.text); }); };
+  sample.json = function (input, opts) {
+    return sample(input, opts).then(function (r) {
+      try { return parseJSON(r.text); }
+      catch (e) { apiToast(r.truncated ? 'réponse coupée (trop longue). Réessaie.' : 'réponse illisible du modèle ' + r.modelApplied + '. Réessaie.'); throw e; }
+    });
+  };
   sample.limits = function () { return Promise.resolve(LIM); };
   Object.freeze(sample);
 
