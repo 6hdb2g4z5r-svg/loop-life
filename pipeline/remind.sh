@@ -17,6 +17,7 @@ def get(name):
 t, d = get('template'), get('dash')
 json.loads(d)
 open('page.html', 'w').write(t.replace('/*DATA*/', d))
+open('dash.json', 'w').write(d)
 def docs(name):
     try:
         j = json.loads(get(name)); return j.get('docs', {}) if isinstance(j, dict) else {}
@@ -36,4 +37,5 @@ json.dump(plan, open('plan.json', 'w'))
 PY
 python3 "$HERE/notify.py" --ensure-vapid || true
 python3 "$HERE/notify.py" tg_remind.py page.html tg.txt "${REMIND_MODE:-auto}" plan.json
+python3 "$HERE/coach.py" dash.json || echo "coach step failed"
 rm -f receiver.txt tg.txt

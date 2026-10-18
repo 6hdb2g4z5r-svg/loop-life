@@ -63,5 +63,6 @@ if [ "${n:-0}" = 0 ]; then
 elif [ -s prev.html ]; then
   python3 "$HERE/notify.py" tg_notify.py prev.html dash.json tg.txt plan.json || echo "telegram step failed"
 fi
+python3 "$HERE/coach.py" dash.json || echo "coach step failed"
 python3 -c "import json,datetime as d;D=json.load(open('dash.json'));t=d.datetime.utcnow().date().isoformat();x=D['days'].get(t,{});print('today',t,'rec',x.get('rec'),'sleep',x.get('sleep'),'strain',x.get('strain'))" || true
 rm -f receiver.txt tg.txt

@@ -67,16 +67,24 @@ def to_push(caption):
     return title, body
 
 
-def push_send(caption):
+def get_subs():
     subs = rx_get('push_subs') or {}
-    subs = subs.get('subs', {}) if isinstance(subs, dict) else {}
+    return subs.get('subs', {}) if isinstance(subs, dict) else {}
+
+
+def push_send(caption):
+    title, body = to_push(caption)
+    return push_raw(title, body)
+
+
+def push_raw(title, body):
+    subs = get_subs()
     if not subs:
         return None
     from pywebpush import webpush, WebPushException
     from py_vapid import Vapid01
     v = ensure_vapid()
     vapid = Vapid01.from_pem(v['pem'].encode())
-    title, body = to_push(caption)
     payload = json.dumps({'title': title, 'body': body, 'url': APP_URL, 'tag': re.sub(r'\W+', '-', title.split('·')[0].strip().lower())[:40]})
     ok, dead = 0, []
     for ep, sub in subs.items():
@@ -103,6 +111,9 @@ def main():
         ensure_vapid()
         return
     channel = os.environ.get('NOTIFY_CHANNEL', 'auto')
+    if channel == 'auto' and get_subs():
+        print('notify: iPhone notifications active, Telegram script skipped (coach.py handles push)')
+        return
     sys.path.insert(0, SCRIPTS)
     import tg_cards
     orig = tg_cards.tg_send
