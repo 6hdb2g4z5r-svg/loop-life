@@ -135,7 +135,7 @@ button{flex:1;padding:14px;border:0;border-radius:12px;font:600 16px/1 inherit;f
       $('ast').textContent = 'Test en cours…';
       Promise.all(ms.map(function (m) {
         return fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-          body: JSON.stringify({ model: m, max_tokens: 5, messages: [{ role: 'user', content: 'ok' }] }) })
+          body: JSON.stringify({ model: m, max_tokens: 5, thinking: { type: 'disabled' }, messages: [{ role: 'user', content: 'ok' }] }) })
           .then(function (r) { return r.text().then(function (t) { if (r.ok) return m + ' : OK'; var x = t; try { x = JSON.parse(t).error.message; } catch (e) {} return m + ' : erreur ' + r.status + ' (' + x + ')'; }); })
           .catch(function (e) { return m + ' : réseau (' + e.message + ')'; });
       })).then(function (res) { $('ast').innerHTML = res.map(function (s) { return s.replace(/</g, '&lt;'); }).join('<br>'); });

@@ -240,7 +240,7 @@
         return fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST', signal: opts.signal,
           headers: { 'content-type': 'application/json', 'x-api-key': CFG.anthropicKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-          body: JSON.stringify({ model: model, max_tokens: opts.maxTokens || 16000, stream: true, messages: messages })
+          body: JSON.stringify({ model: model, max_tokens: opts.maxTokens || 16000, stream: true, thinking: { type: 'disabled' }, messages: messages })
         });
       })
       .then(function (r) {
@@ -249,7 +249,7 @@
           var m = t; try { m = JSON.parse(t).error.message; } catch (e) {}
           throw err(code, 'Claude API ' + r.status + ': ' + m);
         });
-        var reader = r.body.getReader(), dec = new TextDecoder(), buf = '', text = '', stop = null;
+        var reader = r.body.getReader(), dec = new TextDecoder(), buf = '', text = '', stop = null, blocks = [], outTok = null;
         function pump() {
           return reader.read().then(function (x) {
             if (x.done) return;
@@ -259,14 +259,15 @@
               var line = ev.split('\n').filter(function (l) { return l.indexOf('data:') === 0; }).map(function (l) { return l.slice(5).trim(); }).join('');
               if (!line) return; var j; try { j = JSON.parse(line); } catch (e) { return; }
               if (j.type === 'content_block_delta' && j.delta && j.delta.type === 'text_delta') { text += j.delta.text; if (opts.onText) try { opts.onText({ text: text, delta: j.delta.text }); } catch (e) {} }
-              else if (j.type === 'message_delta' && j.delta) stop = j.delta.stop_reason;
+              else if (j.type === 'message_delta' && j.delta) { stop = j.delta.stop_reason; if (j.usage) outTok = j.usage.output_tokens; }
+              else if (j.type === 'content_block_start' && j.content_block) blocks.push(j.content_block.type);
               else if (j.type === 'error') throw err('unavailable', (j.error && j.error.message) || 'stream error', text);
             });
             return pump();
           });
         }
         return pump().then(function () {
-          var v = { text: text, truncated: stop === 'max_tokens', modelTierApplied: tier, modelApplied: model };
+          var v = { text: text, truncated: stop === 'max_tokens', modelTierApplied: tier, modelApplied: model, stop: stop, blocks: blocks, outputTokens: outTok };
           if (ck) answerCache.set(ck, { t: Date.now(), v: v });
           return v;
         });
@@ -294,7 +295,7 @@
         apiToast(r.truncated ? 'réponse coupée (trop longue). Réessaie.' : 'réponse illisible du modèle ' + r.modelApplied + '. Réessaie.');
         try {  // keep the failed reply on the owner's receiver for diagnosis
           var p = typeof input === 'string' ? input : JSON.stringify(input);
-          fetch(rq({ store: 'ai_debug' }), { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ ts: new Date().toISOString(), model: r.modelApplied, tier: r.modelTierApplied, truncated: r.truncated, len: r.text.length, prompt: p.slice(0, 600), promptLen: p.length, head: r.text.slice(0, 1500), tail: r.text.slice(-1500) }) }).catch(function () {});
+          fetch(rq({ store: 'ai_debug' }), { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ ts: new Date().toISOString(), model: r.modelApplied, tier: r.modelTierApplied, truncated: r.truncated, stop: r.stop, blocks: r.blocks, outputTokens: r.outputTokens, len: r.text.length, prompt: p.slice(0, 600), promptLen: p.length, head: r.text.slice(0, 1500), tail: r.text.slice(-1500) }) }).catch(function () {});
         } catch (x) {}
         throw e;
       }
