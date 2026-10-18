@@ -68,7 +68,7 @@ button{flex:1;padding:14px;border:0;border-radius:12px;font:600 16px/1 inherit;f
 
   function render(pack) {
     return fetch('shim.js').then(function (r) { return r.text(); }).then(function (shim) {
-      var gear = '<div id="ll-gear" title="Réglages" style="position:fixed;left:calc(10px + env(safe-area-inset-left));bottom:calc(86px + max(6px,calc(env(safe-area-inset-bottom) - 14px)));width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,.07);color:rgba(255,255,255,.45);display:flex;align-items:center;justify-content:center;font:16px/1 system-ui;z-index:2147483647;cursor:pointer;-webkit-tap-highlight-color:transparent" onclick="localStorage.setItem(\'ll_setup\',\'1\');location.reload()">⚙</div>';
+      var gear = '<button id="ll-gear" aria-label="Réglages" onclick="localStorage.setItem(\'ll_setup\',\'1\');location.reload()"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>';
       var head = '<script>' + shim.replace(/<\/script/gi, '<\\/script') + '<\/script>';
       var html = pack.t.replace('/*DATA*/', function () { return pack.d; });
       var i = html.search(/<script[\s>]/i);
@@ -77,13 +77,21 @@ button{flex:1;padding:14px;border:0;border-radius:12px;font:600 16px/1 inherit;f
       var metas = '<meta name="theme-color" content="#0c1117"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><link rel="manifest" href="manifest.json"><link rel="apple-touch-icon" href="icons/apple-touch-icon.png">';
       html = /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, function (m) { return m + metas; }) : metas + html;
       // iPhone app layout fixes: opaque header pinned under the status bar, tab bar lowered and backed so no text shows beneath it
+      var NB = 'max(6px,calc(env(safe-area-inset-bottom,0px) - 14px))';
       var fix = '<style id="ll-pwa-fix">' +
-        '.top{position:sticky!important;top:0!important;z-index:30!important;margin:calc(-1 * env(safe-area-inset-top,0px)) -16px 0!important;padding:calc(env(safe-area-inset-top,0px) + 10px) 16px 10px!important;background:var(--top)!important;box-shadow:0 10px 14px -6px var(--top)!important}' +
-        '.nav{z-index:30!important;padding-bottom:max(6px,calc(env(safe-area-inset-bottom,0px) - 14px))!important;background:linear-gradient(to bottom,transparent 0,var(--bg) 26px)!important}' +
+        '.top{position:relative!important;top:auto!important;z-index:5!important;padding-top:10px!important}' +
+        'body:before{content:"";position:fixed;left:0;right:0;top:0;height:env(safe-area-inset-top,0px);background:var(--top);z-index:50;pointer-events:none}' +
+        '.who{gap:6px!important}.top{gap:6px}.datenav .d{min-width:0!important;padding:5px 9px!important}.datenav button{width:24px!important}.topr{gap:6px!important}.syncb{padding:5px 8px!important}' +
+        '#ll-gear{width:32px;height:32px;flex:none;border-radius:50%;display:grid;place-items:center;background:var(--card);border:1px solid var(--line);color:var(--mute);padding:0;cursor:pointer;-webkit-tap-highlight-color:transparent}' +
+        '.nav{z-index:30!important;padding-bottom:' + NB + '!important;background:linear-gradient(to bottom,transparent 0,var(--bg) 26px)!important}' +
         '.nav .in{background:var(--card)!important;backdrop-filter:none!important}' +
+        '.cbub{bottom:calc(' + NB + ' + 82px + var(--lift))!important;width:56px!important;height:56px!important;border-radius:18px!important}' +
         '.app{padding-bottom:calc(96px + var(--lift))!important}' +
         '</style>';
-      html = /<\/body>/i.test(html) ? html.replace(/<\/body>(?![\s\S]*<\/body>)/i, fix + gear + '</body>') : html + fix + gear;
+      var placed = false;
+      html = html.replace(/(<div class="who">[\s\S]*?<\/button>)/, function (m) { placed = true; return m + gear; });
+      var tail = fix + (placed ? '' : gear.replace('<button id="ll-gear"', '<button id="ll-gear" style="position:fixed;left:12px;top:calc(12px + env(safe-area-inset-top));z-index:40"'));
+      html = /<\/body>/i.test(html) ? html.replace(/<\/body>(?![\s\S]*<\/body>)/i, tail + '</body>') : html + tail;
       document.open(); document.write(html); document.close();
     });
   }
