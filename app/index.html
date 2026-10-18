@@ -90,7 +90,16 @@ button{flex:1;padding:14px;border:0;border-radius:12px;font:600 16px/1 inherit;f
         '</style>';
       var placed = false;
       html = html.replace(/(<div class="who">[\s\S]*?<\/button>)/, function (m) { placed = true; return m + gear; });
-      var tail = fix + (placed ? '' : gear.replace('<button id="ll-gear"', '<button id="ll-gear" style="position:fixed;left:12px;top:calc(12px + env(safe-area-inset-top));z-index:40"'));
+      // iOS home-screen apps can leave fixed bars stranded mid-screen after the keyboard, a Live Activity or a resume.
+      // Re-pin the tab bar to the real visible bottom whenever the viewport changes.
+      var pin = '<script>(function(){var vv=window.visualViewport;function fix(){var n=document.querySelector(".nav"),b=document.querySelector(".cbub");if(!n)return;' +
+        'var gap=vv?Math.max(0,Math.round(window.innerHeight-vv.height-vv.offsetTop)):0;n.style.bottom=gap+"px";if(b)b.style.transform=gap?"translateY(-"+gap+"px)":"";' +
+        'n.style.display="none";void n.offsetHeight;n.style.display="";}' +
+        'var t;function soon(){clearTimeout(t);t=setTimeout(fix,60);}' +
+        'if(vv){vv.addEventListener("resize",soon);vv.addEventListener("scroll",soon);}' +
+        '["resize","orientationchange","pageshow","focusout"].forEach(function(e){window.addEventListener(e,soon);});' +
+        'document.addEventListener("visibilitychange",function(){if(!document.hidden)setTimeout(fix,300);});setTimeout(fix,500);})();<\/script>';
+      var tail = pin + fix + (placed ? '' : gear.replace('<button id="ll-gear"', '<button id="ll-gear" style="position:fixed;left:12px;top:calc(12px + env(safe-area-inset-top));z-index:40"'));
       html = /<\/body>/i.test(html) ? html.replace(/<\/body>(?![\s\S]*<\/body>)/i, tail + '</body>') : html + tail;
       document.open(); document.write(html); document.close();
     });
