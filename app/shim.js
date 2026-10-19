@@ -286,16 +286,40 @@
     var cands = []; if (a >= 0 && b > a) cands.push([a, t.slice(a, b + 1)]); if (c >= 0 && d > c) cands.push([c, t.slice(c, d + 1)]);
     cands.sort(function (x, y) { return x[0] - y[0]; });
     for (var i = 0; i < cands.length; i++) try { return JSON.parse(cands[i][1]); } catch (e) {}
+    var fx = repairJSON(a >= 0 && (c < 0 || a < c) ? t.slice(a, b + 1) : t.slice(c, d + 1));
+    try { return JSON.parse(fx); } catch (e) {}
     throw err('invalid_output', 'reply was not valid JSON', t);
+  }
+  // models sometimes put raw line breaks or unescaped " inside strings: escape them
+  // (a quote only closes a string when the next non-space char is , } ] or :)
+  function repairJSON(s) {
+    var o = '', inS = false;
+    for (var i = 0; i < s.length; i++) {
+      var ch = s[i];
+      if (!inS) { o += ch; if (ch === '"') inS = true; continue; }
+      if (ch === '\\') { o += ch + (s[i + 1] || ''); i++; continue; }
+      if (ch === '"') {
+        var j = i + 1; while (j < s.length && /\s/.test(s[j])) j++;
+        if (j >= s.length || ',}]:'.indexOf(s[j]) >= 0) { o += ch; inS = false; } else o += '\\"';
+        continue;
+      }
+      if (ch === '\n') { o += '\\n'; continue; }
+      if (ch === '\r') continue;
+      if (ch === '\t') { o += '\\t'; continue; }
+      o += ch;
+    }
+    return o;
   }
   sample.json = function (input, opts) {
     return sample(input, opts).then(function (r) {
       try { return parseJSON(r.text); }
-      catch (e) {
+      catch (e0) {
+        if (!(opts && opts.__retry)) return sample.json(input, Object.assign({}, opts || {}, { cache: false, __retry: true }));
+        var e = e0;
         apiToast(r.truncated ? 'réponse coupée (trop longue). Réessaie.' : 'réponse illisible du modèle ' + r.modelApplied + '. Réessaie.');
         try {  // keep the failed reply on the owner's receiver for diagnosis
           var p = typeof input === 'string' ? input : JSON.stringify(input);
-          fetch(rq({ store: 'ai_debug' }), { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ ts: new Date().toISOString(), model: r.modelApplied, tier: r.modelTierApplied, truncated: r.truncated, stop: r.stop, blocks: r.blocks, outputTokens: r.outputTokens, len: r.text.length, prompt: p.slice(0, 600), promptLen: p.length, head: r.text.slice(0, 1500), tail: r.text.slice(-1500) }) }).catch(function () {});
+          fetch(rq({ store: 'ai_debug' }), { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ ts: new Date().toISOString(), model: r.modelApplied, tier: r.modelTierApplied, truncated: r.truncated, stop: r.stop, blocks: r.blocks, outputTokens: r.outputTokens, len: r.text.length, prompt: p.slice(0, 600), promptLen: p.length, text: r.text.slice(0, 40000) }) }).catch(function () {});
         } catch (x) {}
         throw e;
       }
