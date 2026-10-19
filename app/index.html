@@ -55,16 +55,18 @@ button{flex:1;padding:14px;border:0;border-radius:12px;font:600 16px/1 inherit;f
   function putCache(name, text) { if (!window.caches) return Promise.resolve(); return caches.open(DATA_CACHE).then(function (c) { return c.put('/__ll/' + name, new Response(text, { headers: { 'content-type': 'text/plain' } })); }).catch(function () {}); }
   function getCache(name) { if (!window.caches) return Promise.resolve(null); return caches.open(DATA_CACHE).then(function (c) { return c.match('/__ll/' + name); }).then(function (r) { return r ? r.text() : null; }).catch(function () { return null; }); }
 
+  // a real dashboard payload, not a receiver status/error object that happens to be valid JSON
+  function okDash(s) { try { var j = JSON.parse(s); return !!(j && Array.isArray(j.order) && j.order.length && j.days && typeof j.days === 'object'); } catch (e) { return false; } }
   function remote(c) {
     return Promise.all([fetchText(url(c, { action: 'state', name: 'template' })), fetchText(url(c, { action: 'state', name: 'dash' }))]).then(function (x) {
       var e = receiverErr(x[0]) || receiverErr(x[1]);
       if (e) throw new Error('Receiver : ' + e);
       if (x[0].indexOf('/*DATA*/') < 0) throw new Error('Modèle du tableau de bord invalide');
-      JSON.parse(x[1]);
+      if (!okDash(x[1])) throw new Error('Données du receiver incomplètes, réessaie dans un instant');
       return Promise.all([putCache('template', x[0]), putCache('dash', x[1])]).then(function () { return { t: x[0], d: x[1], fresh: true }; });
     });
   }
-  function cached() { return Promise.all([getCache('template'), getCache('dash')]).then(function (x) { if (!x[0] || !x[1]) throw new Error('no cache'); return { t: x[0], d: x[1], fresh: false }; }); }
+  function cached() { return Promise.all([getCache('template'), getCache('dash')]).then(function (x) { if (!x[0] || !x[1] || x[0].indexOf('/*DATA*/') < 0 || !okDash(x[1])) throw new Error('no cache'); return { t: x[0], d: x[1], fresh: false }; }); }
 
   function render(pack) {
     return fetch('shim.js', { cache: 'no-cache' }).then(function (r) { return r.text(); }).then(function (shim) {

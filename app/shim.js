@@ -382,7 +382,7 @@
       return fetch(rq({ action: 'state', name: n }), { cache: 'no-store', signal: ctl.signal }).then(function (r) { return r.text(); });
     })).then(function (x) {
       if (x[1].indexOf('/*DATA*/') < 0) return;
-      JSON.parse(x[0]);
+      var dj = JSON.parse(x[0]); if (!dj || !Array.isArray(dj.order) || !dj.order.length || !dj.days) return;   // receiver hiccup, not a dashboard
       return caches.open('ll-data-v1').then(function (c) {
         return Promise.all([c.match('/__ll/dash'), c.match('/__ll/template')]).then(function (m) {
           return Promise.all(m.map(function (r) { return r ? r.text() : ''; }));
