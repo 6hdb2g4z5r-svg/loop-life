@@ -8,6 +8,24 @@
   var CFG = {};
   try { CFG = JSON.parse(localStorage.getItem('ll_cfg') || '{}'); } catch (e) {}
   var URL_ = CFG.receiverUrl, KEY = CFG.receiverKey;
+  // crash reporter: if the dashboard script throws, show it on screen (tap to reload) and keep a copy on the receiver
+  var crashSent = 0;
+  function onCrash(msg, stack) {
+    try {
+      if (crashSent++ < 3 && URL_) fetch(URL_ + '?key=' + encodeURIComponent(KEY) + '&store=app_error', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ ts: new Date().toISOString(), ua: navigator.userAgent, msg: String(msg).slice(0, 500), stack: String(stack || '').slice(0, 2000) }) }).catch(function () {});
+      setTimeout(function () {
+        var v = document.getElementById('view'); if (v && v.innerText.trim().length > 50) return;   // page rendered anyway: stay quiet
+        var d = document.getElementById('ll-crash'); if (d) return;
+        d = document.createElement('div'); d.id = 'll-crash';
+        d.style.cssText = 'position:fixed;left:16px;right:16px;top:40%;z-index:70;background:#1b232d;color:#eef2f6;border:1px solid #2c3642;border-radius:16px;padding:18px;font:15px/1.45 -apple-system,sans-serif;text-align:center';
+        d.innerHTML = 'Le tableau de bord a rencontré une erreur.<br><small style="color:#8e9aa8">' + String(msg).replace(/</g, '&lt;').slice(0, 160) + '</small><br><button style="margin-top:12px;background:#7fe0c8;color:#0c1117;border:0;border-radius:12px;padding:10px 18px;font-weight:600">Recharger</button>';
+        d.querySelector('button').onclick = function () { location.reload(); };
+        document.body.appendChild(d);
+      }, 2500);
+    } catch (e) {}
+  }
+  window.addEventListener('error', function (e) { onCrash(e.message, e.error && e.error.stack); });
+  window.addEventListener('unhandledrejection', function (e) { var r = e.reason || {}; if (r.code) return; onCrash('promise: ' + (r.message || r), r.stack); });
   // model ids typed on the phone can arrive capitalised or with spaces (iOS autocapitalise): normalise, fall back to defaults
   var MDEF = { quick: 'claude-haiku-5-5', default: 'claude-sonnet-5-5', complex: 'claude-opus-5-5' }, MODELS = {};
   Object.keys(MDEF).forEach(function (k) { var v = String((CFG.models || {})[k] || '').trim().toLowerCase(); MODELS[k] = /^claude-[a-z0-9.\-]+$/.test(v) ? v : MDEF[k]; });
