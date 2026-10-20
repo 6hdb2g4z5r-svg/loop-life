@@ -64,9 +64,10 @@
     st = stores[top] = { docs: {}, ready: null, timer: null, saving: null, dirty: {}, loaded: false };
     // show this device's last copy instantly, then refresh from the receiver in the background
     var cached = null; try { cached = JSON.parse(localStorage.getItem('ll_dbc_' + top) || 'null'); } catch (e) {}
+    try { (JSON.parse(localStorage.getItem('ll_dirty_' + top) || '[]') || []).forEach(function (k) { st.dirty[k] = true; }); } catch (e) {}
     if (cached && typeof cached === 'object') {
       st.docs = cached;
-      var fresh = load(top).then(function () { if (st.loaded) notify(top); });
+      var fresh = load(top).then(function () { if (st.loaded) notify(top); if (Object.keys(st.dirty).length) save(top); });
       st.ready = Promise.race([fresh, new Promise(function (r) { setTimeout(r, 1200); })]);   // wait at most 1.2 s for fresh data
     } else st.ready = load(top);
     return st;
@@ -84,6 +85,7 @@
         var docs = missing ? {} : j.docs;
         st.loaded = true;
         if (st.timer || st.saving) return;   // local edits pending: keep them
+        var mine = st.docs; Object.keys(st.dirty || {}).forEach(function (k) { if (mine[k] === undefined) delete docs[k]; else docs[k] = mine[k]; });   // unsent edits win
         st.docs = docs;
         try { localStorage.setItem('ll_dbc_' + top, JSON.stringify(docs)); } catch (e) {}
       })
@@ -101,6 +103,7 @@
   function save(top, id, tries) {
     var st = stores[top];
     if (id != null) st.dirty[id] = true;
+    try { localStorage.setItem('ll_dirty_' + top, JSON.stringify(Object.keys(st.dirty))); } catch (e) {}
     clearTimeout(st.timer);
     st.timer = setTimeout(function () {
       st.timer = null;
@@ -118,13 +121,14 @@
             .then(function (res) {
               if (!res || !res.ok) throw new Error('store failed');
               Object.keys(base).forEach(function (k) { if (!st.dirty[k]) st.docs[k] = base[k]; });
+              try { if (!Object.keys(st.dirty).length) localStorage.removeItem('ll_dirty_' + top); } catch (x) {}
               st.loaded = true; notify(top);
             });
         })
         .catch(function (e) {
           console.warn('db save failed, retrying', top, e);
           Object.keys(dirty).forEach(function (k) { st.dirty[k] = true; });
-          if ((tries || 0) < 5) setTimeout(function () { save(top, null, (tries || 0) + 1); }, 3000 * ((tries || 0) + 1));
+          var n = (tries || 0) + 1; setTimeout(function () { save(top, null, n); }, Math.min(60000, 3000 * n));   // keep trying while the app is open
         })
         .then(function () { st.saving = null; });
     }, 600);
@@ -369,6 +373,7 @@
   // short log of AI calls (what, how long, ok or why it failed) kept on the owner's receiver, last 20
   var logQ = [], logT = null;
   function aiLog(e) {
+    return;   // disabled: diagnosis done, keeps receiver traffic low
     logQ.push(e); clearTimeout(logT);
     logT = setTimeout(function () {
       var add = logQ; logQ = [];
