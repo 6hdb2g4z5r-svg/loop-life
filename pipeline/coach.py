@@ -19,7 +19,30 @@ def opt(name):
     return sys.argv[sys.argv.index(name) + 1] if name in sys.argv else None
 
 D = json.load(open(args[0]))
-now = dt.datetime.fromisoformat(opt('--now')) if opt('--now') else dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)  # Casablanca = UTC+0
+UTCNOW = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+def phone_offset():
+    """Health data carry the phone's wall-clock time, so the phone's UTC offset (China = +8) is estimated from the
+    newest sample vs real UTC. Stale data can only make the estimate too low, so a lower value is adopted only
+    after 20 h without confirming the higher one (e.g. back home). Returns (offset, confirmed)."""
+    st = N.rx_get('push_state') or {}
+    keep = st.get('tz') if isinstance(st, dict) else None
+    S = D.get('sync') or {}
+    stamps = [S.get(k) for k in ('hr_any', 'watch_hr', 'steps') if S.get(k)]
+    est = None
+    try:
+        last = max(dt.datetime.strptime(s[:16], '%Y-%m-%d %H:%M') for s in stamps)
+        est = math.ceil((last - UTCNOW).total_seconds() / 3600 - 0.1)
+        est = max(0, est)   # home is UTC+0: stale data must never push the estimate west of home
+        if est > 14: est = None
+    except Exception:
+        est = None
+    if keep:
+        age = (UTCNOW - dt.datetime.fromisoformat(keep['t'])).total_seconds() / 3600
+        if est is None or (est < keep.get('o', 0) and age < 20):
+            return keep.get('o', 0), False
+    return (est if est is not None else 0), est is not None
+TZ_OFF, TZ_OK = (0, False) if opt('--now') else phone_offset()
+now = dt.datetime.fromisoformat(opt('--now')) if opt('--now') else UTCNOW + dt.timedelta(hours=TZ_OFF)  # the phone's local time
 T = now.date().isoformat()
 H = now.hour + now.minute / 60
 PREV = None
@@ -280,6 +303,7 @@ for key, title, body, event in out:
         sent[key] = f'{now:%H:%M}'
         state['last'] = now_ts
 if out and not DRY:
+    if TZ_OK: state['tz'] = {'o': TZ_OFF, 't': UTCNOW.isoformat(timespec='seconds')}
     N.rx_put('push_state', state)
 if DRY:
     json.dump(state, open(DRYSTATE, 'w'))
