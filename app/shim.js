@@ -264,7 +264,12 @@
     if (Array.isArray(input) && input.length && input[input.length - 1].role === 'user') return input.map(function (m) { return { role: m.role, content: String(m.content) }; });
     throw err('invalid_argument', 'input must be a string or a message list ending on user');
   }
+  var inflight = 0;
   function sample(input, opts) {
+    inflight++;
+    return sample0(input, opts).then(function (v) { inflight--; return v; }, function (e) { inflight--; throw e; });
+  }
+  function sample0(input, opts) {
     opts = opts || {};
     if (!CFG.anthropicKey) return Promise.reject(err('not_granted', 'Add your Claude API key in Loop Life settings to use the AI coach.'));
     var tier = opts.modelTier && MODELS[opts.modelTier] ? opts.modelTier : 'default';
@@ -371,7 +376,11 @@
       function (e) { aiLog({ ts: new Date().toISOString(), what: what, ev: 'fail', ms: Date.now() - t0, code: e && e.code, msg: String(e && e.message || e).slice(0, 200) }); throw e; });
   };
   function sampleJson(input, opts) {
-    return sample(input, opts).then(function (r) {
+    return sample(input, opts).catch(function (e) {
+      // dropped connection (iPhone network switch, app paused): try once more before giving up
+      if (!(opts && opts.__net) && e && e.code === 'unavailable' && /load failed|failed to fetch|network/i.test(e.message || '')) return sample(input, Object.assign({}, opts || {}, { cache: false, __net: true }));
+      throw e;
+    }).then(function (r) {
       try { return parseJSON(r.text); }
       catch (e0) {
         if (!(opts && opts.__retry)) return sampleJson(input, Object.assign({}, opts || {}, { cache: false, __retry: true }));
@@ -412,6 +421,20 @@
     server: function () { return Promise.resolve(new Proxy({}, { get: function (_, t) { return function (i) { return MCP.callTool('', t, i).then(function (r) { return r.payload; }); }; } })); }
   });
 
+  // New data arrived: reload only when nothing would be lost (no AI answer pending, nothing being typed, coach sheet closed)
+  function busy() {
+    if (inflight > 0) return true;
+    var a = document.activeElement; if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return true;
+    var typed = [].some.call(document.querySelectorAll('textarea, input[type=text], input:not([type])'), function (el) { return el.value && el.value.trim().length > 0 && el.id !== 'askfile'; });
+    if (typed) return true;
+    var sh = document.getElementById('csheet'); if (sh && !sh.hidden) return true;
+    return false;
+  }
+  var reloadPending = false;
+  function safeReload() {
+    reloadPending = true;
+    (function tryNow() { if (!reloadPending) return; if (busy()) return setTimeout(tryNow, 4000); location.reload(); })();
+  }
   /* ------------------------------------------------- freshness check */
   // The loader shows the last cached copy instantly; here we fetch the receiver's copy and
   // reload when it is newer. Runs at start and every time the app comes back to the foreground.
@@ -431,7 +454,7 @@
         }).then(function (old) {
           if (old[0] === x[0] && old[1] === x[1]) return;
           var put = function (n, t) { return c.put('/__ll/' + n, new Response(t, { headers: { 'content-type': 'text/plain' } })); };
-          return Promise.all([put('dash', x[0]), put('template', x[1])]).then(function () { location.reload(); });
+          return Promise.all([put('dash', x[0]), put('template', x[1])]).then(function () { safeReload(); });
         });
       });
     }).catch(function () {}).then(function () { clearTimeout(to); checking = false; });
