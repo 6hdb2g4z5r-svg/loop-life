@@ -119,7 +119,7 @@
           return fetch(rq({ store: 'db_' + top }), { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ v: 1, docs: base }) })
             .then(function (r) { return r.json(); })
             .then(function (res) {
-              if (!res || !res.ok) throw new Error('store failed');
+              if (!res || !res.ok || !res.stored) throw new Error('store failed');   // {ok:true} without "stored" = the POST was not applied
               Object.keys(base).forEach(function (k) { if (!st.dirty[k]) st.docs[k] = base[k]; });
               try { if (!Object.keys(st.dirty).length) localStorage.removeItem('ll_dirty_' + top); } catch (x) {}
               st.loaded = true; notify(top);

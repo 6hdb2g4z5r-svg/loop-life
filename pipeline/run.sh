@@ -14,7 +14,8 @@ printf '%s\n%s\n' "$RECEIVER_URL" "$RECEIVER_KEY" > receiver.txt
 printf '%s\n%s\n' "$TG_TOKEN" "$TG_CHAT" > tg.txt
 
 rx() { curl -sSL --max-time 120 "$RECEIVER_URL?key=$RECEIVER_KEY&$1"; }
-post() { curl -sSL --max-time 300 -H 'Content-Type: text/plain' --data-binary "@$2" "$RECEIVER_URL?key=$RECEIVER_KEY&store=$1"; }
+post() {   # retry until the receiver confirms "stored" (it sometimes answers a POST like a GET)
+  local r=""; for i in 1 2 3 4 5; do r="$(curl -sSL --max-time 300 -H 'Content-Type: text/plain' --data-binary "@$2" "$RECEIVER_URL?key=$RECEIVER_KEY&store=$1")"; echo "$r" | grep -q '"stored"' && break; sleep $((i*5)); done; echo "$r"; }
 
 # 1. page template (kept on the receiver; refreshed whenever the dashboard design changes)
 for i in 1 2 3 4 5; do rx 'action=state&name=template' > template.html; grep -q '/\*DATA\*/' template.html && break; sleep 15; done

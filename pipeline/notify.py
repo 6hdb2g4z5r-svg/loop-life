@@ -33,7 +33,8 @@ def rx_put(name, obj):
     q = urllib.parse.urlencode({'key': KEY, 'store': name})
     r = subprocess.run(['curl', '-sSL', '--max-time', '60', '-H', 'Content-Type: text/plain', '--data-binary', json.dumps(obj), f'{URL}?{q}'],
                        capture_output=True, text=True).stdout
-    return '"ok":true' in r.replace(' ', '')
+    r = r.replace(' ', '')
+    return '"ok":true' in r and '"stored"' in r
 
 
 def b64u(b):
