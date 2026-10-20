@@ -20,7 +20,7 @@ ORANGE = (255, 154, 60)
 VIOLET = (125, 108, 242)
 ZC = [(58, 70, 84), (95, 180, 255), (63, 208, 182), (243, 210, 60), (255, 154, 60), (255, 77, 94)]
 STAGE = {'awake': (233, 238, 243), 'rem': (125, 108, 242), 'light': (134, 174, 211), 'deep': (43, 90, 170)}
-LINK = 'https://claude.ai/artifact/WAZfHBEvYHs7S6dLypdek7'
+LINK = 'https://6hdb2g4z5r-svg.github.io/loop-life/'
 W = 1080
 _FONTS = {}
 

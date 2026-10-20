@@ -24,8 +24,8 @@ form{width:100%;max-width:440px}
 h1{font-size:26px;margin:18px 0 4px;letter-spacing:-.01em}
 p.sub{color:var(--mute);margin:0 0 22px;font-size:14px}
 label{display:block;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);margin:16px 0 6px}
-input{width:100%;padding:13px 14px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--fg);font:inherit;font-size:16px}
-input:focus{outline:none;border-color:var(--a2)}
+input,select{width:100%;padding:13px 14px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--fg);font:inherit;font-size:16px}
+input:focus,select:focus{outline:none;border-color:var(--a2)}
 details{margin-top:18px;border-top:1px solid var(--line);padding-top:6px}
 summary{cursor:pointer;color:var(--mute);font-size:14px;padding:8px 0}
 .hint{font-size:12px;color:var(--mute);margin-top:5px}
@@ -118,7 +118,10 @@ button{flex:1;padding:14px;border:0;border-radius:12px;font:600 16px/1 inherit;f
       '<div class="wrap"><form id="f" autocomplete="off"><div class="ring"></div><h1>Loop Life</h1><p class="sub">Réglages enregistrés uniquement sur cet appareil.</p>' +
       '<label>URL du receiver</label><input id="u" type="url" required placeholder="https://script.google.com/macros/s/…/exec">' +
       '<label>Clé du receiver</label><input id="k" type="password" required>' +
-      '<label>Clé API Claude <span style="text-transform:none;letter-spacing:0">(coach IA, optionnel)</span></label><input id="a" type="password" placeholder="sk-ant-…" autocapitalize="off" autocorrect="off" spellcheck="false"><div class="hint">Fixe une limite de dépense mensuelle dans la Claude Console.</div><button type="button" class="sec" id="atest" style="width:100%;margin-top:8px">Tester le coach IA</button><div class="hint" id="ast"></div>' +
+      '<label>Clé API Claude <span style="text-transform:none;letter-spacing:0">(coach IA, optionnel)</span></label><input id="a" type="password" placeholder="sk-ant-…" autocapitalize="off" autocorrect="off" spellcheck="false"><div class="hint">Fixe une limite de dépense mensuelle dans la Claude Console.</div>' +
+      '<label>Fournisseur du coach IA</label><select id="prov"><option value="claude">Claude (par défaut)</option><option value="deepseek">DeepSeek (voyage)</option></select>' +
+      '<label>Clé API DeepSeek <span style="text-transform:none;letter-spacing:0">(optionnel)</span></label><input id="dk" type="password" placeholder="sk-…" autocapitalize="off" autocorrect="off" spellcheck="false"><div class="hint">Utilisée seulement quand DeepSeek est sélectionné. Les données envoyées au coach passent alors par les serveurs de DeepSeek.</div>' +
+      '<button type="button" class="sec" id="atest" style="width:100%;margin-top:8px">Tester le coach IA</button><div class="hint" id="ast"></div>' +
       '<details><summary>Avancé</summary>' +
       '<label>Jeton GitHub <span style="text-transform:none;letter-spacing:0">(Synchro instantanée, optionnel)</span></label><input id="g" type="password" placeholder="github_pat_…"><div class="hint">Jeton fine-grained limité au dépôt, permission « Actions : read and write ».</div>' +
       '<label>Dépôt GitHub</label><input id="r" placeholder="propriétaire/loop-life">' +
@@ -128,21 +131,24 @@ button{flex:1;padding:14px;border:0;border-radius:12px;font:600 16px/1 inherit;f
       '<div class="status" id="st"></div><div class="row">' + (c.receiverUrl ? '<button type="button" class="sec" id="cancel">Annuler</button>' : '') + '<button class="pri" type="submit">Enregistrer</button></div></form></div>';
     var m = c.models || {};
     $('u').value = c.receiverUrl || ''; $('k').value = c.receiverKey || ''; $('a').value = c.anthropicKey || ''; $('g').value = c.ghToken || '';
+    $('prov').value = c.aiProvider === 'deepseek' ? 'deepseek' : 'claude'; $('dk').value = c.deepseekKey || '';
     $('r').value = c.ghRepo || DEFAULT_REPO; $('m1').value = m.quick || 'claude-haiku-5-5'; $('m2').value = m.default || 'claude-sonnet-5-5'; $('m3').value = m.complex || 'claude-opus-5-5';
     if (note) { $('st').textContent = note; $('st').className = 'status bad'; }
     setupNotif(c);
     $('atest').onclick = function () {
-      var key = $('a').value.trim(), ms = [$('m1').value, $('m2').value, $('m3').value].map(function (v) { return v.trim().toLowerCase(); });
-      if (!key) { $('ast').textContent = 'Aucune clé API saisie.'; return; }
+      var ds = $('prov').value === 'deepseek';
+      var key = (ds ? $('dk') : $('a')).value.trim(), ms = ds ? ['deepseek-flash', 'deepseek-v4-pro'] : [$('m1').value, $('m2').value, $('m3').value].map(function (v) { return v.trim().toLowerCase(); });
+      var api = ds ? 'https://api.deepseek.com/anthropic/v1/messages' : 'https://api.anthropic.com/v1/messages';
+      if (!key) { $('ast').textContent = 'Aucune clé API ' + (ds ? 'DeepSeek' : 'Claude') + ' saisie.'; return; }
       $('ast').textContent = 'Test en cours…';
       Promise.all(ms.map(function (m) {
         var call = function (th) {
           var b = { model: m, max_tokens: 5, messages: [{ role: 'user', content: 'ok' }] }; if (th) b.thinking = th;
-          return fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' }, body: JSON.stringify(b) })
+          return fetch(api, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' }, body: JSON.stringify(b) })
             .then(function (r) { return r.text().then(function (t) { return { r: r, t: t }; }); });
         };
         var saved = null; try { saved = localStorage.getItem('ll_think_' + m); } catch (e) {}
-        return call(saved === 'omit' ? null : { type: saved || 'disabled' })
+        return call(ds || saved === 'omit' ? null : { type: saved || 'disabled' })
           .then(function (x) {
             var msg = x.t; try { msg = JSON.parse(x.t).error.message; } catch (e) {}
             if (x.r.status === 400 && /thinking/i.test(msg)) {   // learn this model's spelling of "no thinking", like the coach does
@@ -159,7 +165,9 @@ button{flex:1;padding:14px;border:0;border-radius:12px;font:600 16px/1 inherit;f
     $('f').onsubmit = function (ev) {
       ev.preventDefault();
       var n = { receiverUrl: $('u').value.trim(), receiverKey: $('k').value.trim(), anthropicKey: $('a').value.trim(), ghToken: $('g').value.trim(), ghRepo: $('r').value.trim(),
+        aiProvider: $('prov').value === 'deepseek' ? 'deepseek' : 'claude', deepseekKey: $('dk').value.trim(),
         models: { quick: $('m1').value.trim(), default: $('m2').value.trim(), complex: $('m3').value.trim() } };
+      if (n.aiProvider === 'deepseek' && !n.deepseekKey) { $('st').className = 'status bad'; $('st').textContent = 'DeepSeek sélectionné : saisis la clé API DeepSeek (ou repasse sur Claude).'; return; }
       $('st').className = 'status'; $('st').textContent = 'Vérification…';
       fetchText(url(n, { action: 'state', name: 'dash' })).then(function (t) {
         var e = receiverErr(t); if (e === 'bad key') throw new Error('Clé du receiver incorrecte');
@@ -183,6 +191,7 @@ button{flex:1;padding:14px;border:0;border-radius:12px;font:600 16px/1 inherit;f
     navigator.serviceWorker.ready.then(function (reg) { return reg.pushManager.getSubscription(); }).then(function (sub) {
       if (sub && Notification.permission === 'granted') { b.textContent = 'Notifications activées ✓ (réactiver)'; say('Cet appareil reçoit les notifications Loop Life.'); }
     }).catch(function () {});
+    var oldEp = null, vapidKey = null;
     b.onclick = function () {
       if (!c.receiverUrl || !c.receiverKey) { say('Enregistre d’abord l’URL et la clé du receiver.'); return; }
       say('Demande d’autorisation…');
@@ -192,17 +201,20 @@ button{flex:1;padding:14px;border:0;border-radius:12px;font:600 16px/1 inherit;f
       }).then(function (x) {
         var k; try { k = JSON.parse(x[1]).key; } catch (e) {}
         if (!k) throw new Error('Clé de notification pas encore créée : lance une synchro puis réessaie.');
-        return x[0].pushManager.getSubscription().then(function (old) { return old ? old.unsubscribe() : null; })
+        vapidKey = k;
+        return x[0].pushManager.getSubscription().then(function (old) { oldEp = old ? old.endpoint : null; return old ? old.unsubscribe() : null; })
           .then(function () { return x[0].pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uToBytes(k) }); });
       }).then(function (sub) {
         var j = sub.toJSON();
         return fetchText(url(c, { action: 'state', name: 'push_subs' })).then(function (t) {
-          var cur = { subs: {} }; try { var p = JSON.parse(t); if (p && p.subs) cur = p; } catch (e) {}
-          cur.subs[j.endpoint] = { endpoint: j.endpoint, keys: j.keys, added: new Date().toISOString(), ua: navigator.userAgent.slice(0, 80) };
+          var cur = { subs: {} }; try { var p = JSON.parse(t); if (p && p.subs) cur = p; else if (p && p.ok === false && p.error !== 'missing') throw new Error('Receiver : ' + p.error); } catch (e) { if (/^Receiver/.test(e.message)) throw e; }
+          try { if (oldEp) delete cur.subs[oldEp]; } catch (e) {}
+          cur.subs[j.endpoint] = { endpoint: j.endpoint, keys: j.keys, vapidPub: vapidKey, added: new Date().toISOString(), ua: navigator.userAgent.slice(0, 80) };
           return postJSON(c, 'push_subs', cur);
         });
       }).then(function (r) {
-        if (!r || !r.ok) throw new Error('Enregistrement impossible sur le receiver.');
+        if (!r || !r.ok || !r.stored) throw new Error('Enregistrement impossible sur le receiver.');
+        try { localStorage.setItem('ll_push_on', '1'); localStorage.removeItem('ll_push_chk'); } catch (e) {}
         b.textContent = 'Notifications activées ✓ (réactiver)';
         say('C’est bon. Les prochaines alertes Loop Life arriveront ici (Telegram s’arrête automatiquement).');
       }).catch(function (e) { say(e.message || String(e)); });

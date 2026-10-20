@@ -20,11 +20,23 @@ def opt(name):
 
 D = json.load(open(args[0]))
 UTCNOW = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+DRYSTATE = 'push_state_dry.json'
+# what was already sent today: read ONCE; if the receiver is unreadable right now, stop instead of starting
+# from an empty state (which would re-send every notification of the day after a receiver hiccup)
+if DRY:
+    PSTATE = json.load(open(DRYSTATE)) if os.path.exists(DRYSTATE) else {}
+else:
+    PSTATE, _ps = N.rx_get_raw('push_state')
+    if _ps == 'error':
+        print('coach: receiver unreadable, skipped this pass')
+        sys.exit(0)
+    if not isinstance(PSTATE, dict):
+        PSTATE = {}
 def phone_offset():
     """Health data carry the phone's wall-clock time, so the phone's UTC offset (China = +8) is estimated from the
     newest sample vs real UTC. Stale data can only make the estimate too low, so a lower value is adopted only
     after 20 h without confirming the higher one (e.g. back home). Returns (offset, confirmed)."""
-    st = N.rx_get('push_state') or {}
+    st = PSTATE
     keep = st.get('tz') if isinstance(st, dict) else None
     S = D.get('sync') or {}
     stamps = [S.get(k) for k in ('hr_any', 'watch_hr', 'steps') if S.get(k)]
@@ -171,7 +183,6 @@ def add(key, title, body, event=False, prio=5):
 if T in days and 7 <= H < 23:
     # 1. Morning recovery (as soon as last night + recovery are in)
     if rec is not None and x.get('sl') and H < 14:
-        zone = '🟢' if rec >= 67 else '🟡' if rec >= 34 else '🔴'
         hrv, bh, rhr, br = x.get('hrv'), x.get('bH'), x.get('rhr'), x.get('bR')
         bits = []
         if hrv and bh:
@@ -193,7 +204,7 @@ if T in days and 7 <= H < 23:
                 plan = f'Cible d’effort {fmt(lo, 1)}–{fmt(hi, 1)}' + (' (séance légère).' if DP['type'] == 'light' else '.')
         debt = sleep_debt()
         tail = f' Dette de sommeil {hm(debt)} sur 7 j.' if debt >= 150 else ''
-        add('rec', f'{zone} Récupération {rec} % · {head}', ' · '.join(bits) + '.\n' + plan + tail, event=True, prio=1)
+        add('rec', f'Récupération {rec} % · {head}', ' · '.join(bits) + '.\n' + plan + tail, event=True, prio=1)
         # elevated resting HR / low HRV = early warning
         if rhr and br and hrv and bh and rhr - br >= 5 and hrv < bh * 0.85:
             add('rhr', f'FC de repos élevée · +{round(rhr - br)} bpm',
@@ -272,8 +283,7 @@ if T in days and 7 <= H < 23:
         add('week', 'Bilan de la semaine', f'{ns} séance{"s" if ns > 1 else ""} · {fmt(st)} pas/jour' + (f' · récup. moy. {round(rr)} %' if rr is not None else '') + (f' · sommeil {hm(sl)}' if sl else '') + '.', prio=5)
 
 # ---------------------------------------------------------------- dedupe, pacing, send
-DRYSTATE = 'push_state_dry.json'
-state = (N.rx_get('push_state') or {}) if not DRY else (json.load(open(DRYSTATE)) if os.path.exists(DRYSTATE) else {})
+state = PSTATE
 if state.get('date') != T:
     state = {'date': T, 'sent': {}, 'last': 0}
 sent = state['sent']
@@ -293,6 +303,7 @@ for key, prio, title, body, event in sorted(due, key=lambda d: d[1]):
         continue
     out.append((key, title, body, event))
 
+changed = False
 for key, title, body, event in out:
     if DRY:
         print(f'[{now:%H:%M}] {title}\n         {body.replace(chr(10), chr(10) + "         ")}')
@@ -302,8 +313,22 @@ for key, title, body, event in out:
     if ok:
         sent[key] = f'{now:%H:%M}'
         state['last'] = now_ts
-if out and not DRY:
-    if TZ_OK: state['tz'] = {'o': TZ_OFF, 't': UTCNOW.isoformat(timespec='seconds')}
+        changed = True
+    elif ok is False:
+        # devices are subscribed but none accepted the message: a coach notification is only useful in the
+        # moment, so it is not retried every 20 minutes (that would flood the phone once push works again)
+        sent[key] = f'failed {now:%H:%M}'
+        changed = True
+if TZ_OK and not DRY:
+    tz0 = state.get('tz') or {}
+    try:
+        tz_age = (UTCNOW - dt.datetime.fromisoformat(tz0['t'])).total_seconds() / 3600
+    except Exception:
+        tz_age = 99
+    if tz0.get('o') != TZ_OFF or out or tz_age > 2:   # keep the "confirmed at" stamp fresh (cheap, every ~2 h)
+        state['tz'] = {'o': TZ_OFF, 't': UTCNOW.isoformat(timespec='seconds')}
+        changed = True
+if changed and not DRY:
     N.rx_put('push_state', state)
 if DRY:
     json.dump(state, open(DRYSTATE, 'w'))

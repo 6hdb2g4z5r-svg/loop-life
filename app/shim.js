@@ -30,6 +30,13 @@
   var MDEF = { quick: 'claude-haiku-5-5', default: 'claude-sonnet-5-5', complex: 'claude-opus-5-5' }, MODELS = {};
   Object.keys(MDEF).forEach(function (k) { var v = String((CFG.models || {})[k] || '').trim().toLowerCase(); MODELS[k] = /^claude-[a-z0-9.\-]+$/.test(v) ? v : MDEF[k]; });
   if (CFG.anthropicKey) CFG.anthropicKey = String(CFG.anthropicKey).trim();
+  if (CFG.deepseekKey) CFG.deepseekKey = String(CFG.deepseekKey).trim();
+  // AI provider: Claude by default; DeepSeek (Anthropic-compatible endpoint, same request format) when selected in settings
+  var PROVIDERS = {
+    claude: { name: 'Claude', url: 'https://api.anthropic.com/v1/messages', key: CFG.anthropicKey, models: MODELS },
+    deepseek: { name: 'DeepSeek', url: 'https://api.deepseek.com/anthropic/v1/messages', key: CFG.deepseekKey, models: { quick: 'deepseek-flash', default: 'deepseek-flash', complex: 'deepseek-v4-pro' } }
+  };
+  var PROV = PROVIDERS[CFG.aiProvider === 'deepseek' ? 'deepseek' : 'claude'];
   var lastToast = 0;
   function apiToast(msg) {
     // show the real Claude API error once in a while, so a bad key / no credit / wrong model is visible
@@ -284,16 +291,17 @@
   }
   // "no extended thinking" is spelled differently per model: start with {type:'disabled'} and, if the API
   // answers with the right spelling for this model, remember it (per model, on this device) and retry once
-  function thinkParam(model) { try { var v = localStorage.getItem('ll_think_' + model); if (v === 'omit') return null; if (v) return { type: v }; } catch (e) {} return { type: 'disabled' }; }
+  function thinkParam(model) { if (!/^claude-/.test(model)) return null; try { var v = localStorage.getItem('ll_think_' + model); if (v === 'omit') return null; if (v) return { type: v }; } catch (e) {} return { type: 'disabled' }; }
   function learnThink(model, msg) {
     var m = /"thinking":\s*\{\s*"type":\s*"([a-z_]+)"\s*\}\s*instead/i.exec(msg || '');
     try { localStorage.setItem('ll_think_' + model, m ? m[1] : 'omit'); } catch (e) {}
   }
   function sample0(input, opts) {
     opts = opts || {};
-    if (!CFG.anthropicKey) return Promise.reject(err('not_granted', 'Add your Claude API key in Loop Life settings to use the AI coach.'));
-    var tier = opts.modelTier && MODELS[opts.modelTier] ? opts.modelTier : 'default';
-    var model = (opts.model && /^claude-/.test(opts.model)) ? opts.model : MODELS[tier];
+    if (!PROV.key) return Promise.reject(err('not_granted', 'Add your ' + PROV.name + ' API key in Loop Life settings to use the AI coach.'));
+    var tier = opts.modelTier && PROV.models[opts.modelTier] ? opts.modelTier : 'default';
+    // an explicit claude-* model from the dashboard is honoured only on the Claude provider; DeepSeek keeps its own tiers
+    var model = (opts.model && /^claude-/.test(opts.model) && PROV === PROVIDERS.claude) ? opts.model : PROV.models[tier];
     var messages;
     try { messages = toMessages(input); } catch (e) { return Promise.reject(e); }
     var bytes = new Blob([JSON.stringify(messages)]).size;
@@ -304,9 +312,9 @@
     return Promise.all(imgs.map(function (b) { return blobB64(b).then(function (d) { return { type: 'image', source: { type: 'base64', media_type: b.type || 'image/jpeg', data: d } }; }); }))
       .then(function (blocks) {
         if (blocks.length) { var last = messages[messages.length - 1]; last.content = blocks.concat([{ type: 'text', text: last.content }]); }
-        return fetch('https://api.anthropic.com/v1/messages', {
+        return fetch(PROV.url, {
           method: 'POST', signal: opts.signal,
-          headers: { 'content-type': 'application/json', 'x-api-key': CFG.anthropicKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+          headers: { 'content-type': 'application/json', 'x-api-key': PROV.key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
           body: JSON.stringify(Object.assign({ model: model, max_tokens: opts.maxTokens || 16000, stream: true, messages: messages }, thinkParam(model) ? { thinking: thinkParam(model) } : {}))
         });
       })
@@ -315,7 +323,7 @@
           var code = r.status === 429 ? 'rate_limited' : (r.status === 401 || r.status === 403) ? 'not_granted' : r.status === 400 ? 'invalid_argument' : 'unavailable';
           var m = t; try { m = JSON.parse(t).error.message; } catch (e) {}
           if (r.status === 400 && /thinking/i.test(m) && !opts.__think) { learnThink(model, m); return sample0(input, Object.assign({}, opts, { __think: true })); }
-          throw err(code, 'Claude API ' + r.status + ': ' + m);
+          throw err(code, PROV.name + ' API ' + r.status + ': ' + m);
         });
         var reader = r.body.getReader(), dec = new TextDecoder(), buf = '', text = '', stop = null, blocks = [], outTok = null;
         function pump() {
@@ -342,7 +350,7 @@
       })
       .catch(function (e) {
         if (e && e.name === 'AbortError') throw err('aborted', 'aborted');
-        if (!(e && e.code === 'aborted')) apiToast(e && e.code === 'not_granted' && /settings/.test(e.message || '') ? 'ajoute ta clé API Claude dans les réglages (bouton ⚙︎).' : String(e && e.message || e).slice(0, 220));
+        if (!(e && e.code === 'aborted')) apiToast(e && e.code === 'not_granted' && /settings/.test(e.message || '') ? 'ajoute ta clé API ' + PROV.name + ' dans les réglages (bouton ⚙︎).' : String(e && e.message || e).slice(0, 220));
         if (e && e.code) throw e;
         throw err('unavailable', String(e && e.message || e));
       });
@@ -484,6 +492,47 @@
   setTimeout(freshCheck, 1500);
   document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') freshCheck(); });
   window.addEventListener('pageshow', function () { freshCheck(); });
+
+  /* ------------------------------------------------- push self-heal */
+  // A push subscription is bound to the server's VAPID public key. If that key ever changes (or the server dropped
+  // this device), every notification silently fails. Once a day, compare this device's subscription with the key
+  // on the receiver and re-subscribe when they differ (permission is already granted, so this is silent).
+  function b64uToBytes(s) { s = s.replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '='; var b = atob(s), a = new Uint8Array(b.length); for (var i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a; }
+  function bytesToB64u(buf) { var a = new Uint8Array(buf), s = ''; for (var i = 0; i < a.length; i++) s += String.fromCharCode(a[i]); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+  function pushHeal() {
+    try {
+      if (!URL_ || !('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return;
+      if (Notification.permission !== 'granted') return;
+      var last = +(localStorage.getItem('ll_push_chk') || 0); if (Date.now() - last < 6 * 3600 * 1000) return;
+      localStorage.setItem('ll_push_chk', String(Date.now()));
+    } catch (e) { return; }
+    var reg, key;
+    Promise.all([navigator.serviceWorker.ready, fetch(rq({ action: 'state', name: 'vapid_pub' }), { cache: 'no-store' }).then(function (r) { return r.text(); })])
+      .then(function (x) {
+        reg = x[0]; try { key = JSON.parse(x[1]).key; } catch (e) {}
+        if (!key || !/^[A-Za-z0-9_\-]{80,}$/.test(key)) return;   // receiver hiccup or no key yet: do nothing
+        return reg.pushManager.getSubscription().then(function (sub) {
+          var on = false; try { on = localStorage.getItem('ll_push_on') === '1'; } catch (e) {}
+          if (!sub && !on) return;   // this device never enabled notifications from the app
+          var cur = sub && sub.options && sub.options.applicationServerKey ? bytesToB64u(sub.options.applicationServerKey) : null;
+          return fetch(rq({ action: 'state', name: 'push_subs' }), { cache: 'no-store' }).then(function (r) { return r.text(); }).then(function (t) {
+            var list = { subs: {} }; try { var p = JSON.parse(t); if (p && p.subs) list = p; else if (p && p.ok === false && p.error !== 'missing') return; } catch (e) { return; }
+            var known = sub && list.subs[sub.endpoint];
+            if (sub && cur === key && known && known.vapidPub === key) return;   // all good
+            var old = sub ? sub.endpoint : null, keep = sub && cur === key;   // same key: only the receiver's record is missing/old
+            return (sub && !keep ? sub.unsubscribe().catch(function () {}) : Promise.resolve())
+              .then(function () { return keep ? sub : reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uToBytes(key) }); })
+              .then(function (ns) {
+                var j = ns.toJSON();
+                if (old) delete list.subs[old];
+                list.subs[j.endpoint] = { endpoint: j.endpoint, keys: j.keys, vapidPub: key, added: new Date().toISOString(), ua: navigator.userAgent.slice(0, 80) };
+                return fetch(rq({ store: 'push_subs' }), { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(list) });
+              });
+          });
+        });
+      }).catch(function () { try { localStorage.removeItem('ll_push_chk'); } catch (e) {} });
+  }
+  setTimeout(pushHeal, 4000);
 
   var CAPS = { db: DB, sample: sample, mcp: MCP };
   window.claude = freeze({ use: function (name) { return new Promise(function (res) { setTimeout(function () { res(CAPS[name] || null); }, 0); }); } });

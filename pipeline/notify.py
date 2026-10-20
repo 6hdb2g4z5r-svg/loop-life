@@ -19,14 +19,28 @@ APP_URL = 'https://6hdb2g4z5r-svg.github.io/loop-life/'
 URL, KEY = open('receiver.txt').read().split()
 
 
-def rx_get(name):
+def rx_get_raw(name, tries=3):
+    """Returns (value, status): status is 'ok', 'missing' (the receiver explicitly has no such blob) or 'error'
+    (outage, non-JSON answer, timeout). Callers must never treat 'error' as 'missing'."""
+    import time
     q = urllib.parse.urlencode({'key': KEY, 'action': 'state', 'name': name})
-    r = subprocess.run(['curl', '-sSL', '--max-time', '60', f'{URL}?{q}'], capture_output=True, text=True).stdout
-    try:
-        j = json.loads(r)
-    except Exception:
-        return None
-    return None if isinstance(j, dict) and j.get('ok') is False else j
+    for i in range(tries):
+        r = subprocess.run(['curl', '-sSL', '--max-time', '60', f'{URL}?{q}'], capture_output=True, text=True).stdout
+        try:
+            j = json.loads(r)
+        except Exception:
+            j = None
+        if isinstance(j, dict) and j.get('ok') is False:
+            return (None, 'missing') if j.get('error') == 'missing' else (None, 'error')
+        if j is not None:
+            return j, 'ok'
+        if i + 1 < tries:
+            time.sleep(5 * (i + 1))
+    return None, 'error'
+
+
+def rx_get(name):
+    return rx_get_raw(name)[0]
 
 
 def rx_put(name, obj):
@@ -42,10 +56,16 @@ def b64u(b):
 
 
 def ensure_vapid():
-    """Create the push key pair once and keep it on the receiver (private never leaves receiver/Actions)."""
-    v = rx_get('vapid')
-    if v and v.get('pem'):
+    """Create the push key pair once and keep it on the receiver (private never leaves receiver/Actions).
+    The pair is generated ONLY when the receiver explicitly says it has none: a receiver outage (HTML error
+    page, empty answer) must never regenerate it, because every phone subscription is bound to the public key
+    and a new pair silently breaks all of them (that is what happened on 2026-10-20, 'VapidPkHashMismatch')."""
+    v, status = rx_get_raw('vapid')
+    if status == 'ok' and isinstance(v, dict) and v.get('pem'):
         return v
+    if status != 'missing':
+        print('vapid: receiver unreadable, keeping the existing key pair')
+        return None
     from cryptography.hazmat.primitives.asymmetric import ec
     from cryptography.hazmat.primitives import serialization
     k = ec.generate_private_key(ec.SECP256R1())
@@ -54,7 +74,9 @@ def ensure_vapid():
     v = {'pem': pem, 'pub': pub}
     if rx_put('vapid', v) and rx_put('vapid_pub', {'key': pub}):
         print('vapid: created')
-    return v
+        return v
+    print('vapid: could not be stored, not using the unsaved pair')
+    return None
 
 
 def to_push(caption):
@@ -85,24 +107,37 @@ def push_raw(title, body):
     from pywebpush import webpush, WebPushException
     from py_vapid import Vapid01
     v = ensure_vapid()
+    if not v:
+        print('push: no usable key pair right now, skipped ·', title)
+        return False
     vapid = Vapid01.from_pem(v['pem'].encode())
     payload = json.dumps({'title': title, 'body': body, 'url': APP_URL, 'tag': re.sub(r'\W+', '-', title.split('·')[0].strip().lower())[:40]})
     ok, dead = 0, []
     for ep, sub in subs.items():
+        # a device that subscribed with another public key can never receive anything from this pair: drop it,
+        # the app re-subscribes itself with the current key the next time it is opened
+        if sub.get('vapidPub') and sub['vapidPub'] != v['pub']:
+            print('push: subscription made with an old key, removed')
+            dead.append(ep)
+            continue
         try:
-            webpush(subscription_info=sub, data=payload, vapid_private_key=vapid, vapid_claims={'sub': 'mailto:6hdb2g4z5r-svg@users.noreply.github.com'}, ttl=6 * 3600)
+            webpush(subscription_info={'endpoint': sub['endpoint'], 'keys': sub['keys']}, data=payload, vapid_private_key=vapid,
+                    vapid_claims={'sub': 'mailto:6hdb2g4z5r-svg@users.noreply.github.com'}, ttl=6 * 3600)
             ok += 1
         except WebPushException as e:
             code = getattr(e.response, 'status_code', None)
-            print('push failed', code, str(e)[:160])
-            if code in (404, 410):
+            msg = str(e)[:160]
+            print('push failed', code, msg)
+            if code in (404, 410) or (code in (400, 403) and 'Vapid' in str(e)):
                 dead.append(ep)
+        except Exception as e:
+            print('push error', str(e)[:160])
     if dead:
         cur = rx_get('push_subs') or {'subs': {}}
         for ep in dead:
             cur.get('subs', {}).pop(ep, None)
         rx_put('push_subs', cur)
-        print('push: removed', len(dead), 'expired subscription(s)')
+        print('push: removed', len(dead), 'dead subscription(s)')
     print(f'push: sent to {ok}/{len(subs)} device(s) · {title}')
     return ok > 0
 

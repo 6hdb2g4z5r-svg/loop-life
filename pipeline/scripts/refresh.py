@@ -60,8 +60,26 @@ open(os.path.join(W, 'loop-life.html'), 'w').write(t.replace('/*DATA*/', open(os
 if files:
  p = os.path.join(W, 'state.b64')
  open(p, 'wb').write(base64.b64encode(gzip.compress(json.dumps(state, separators=(',', ':')).encode(), 9)))
- print('state saved:', post('state', p))
+ # the inbox files are consumed ONLY once the receiver confirms the merged state is stored ("stored" in the
+ # answer); otherwise their rows would be lost for good
+ res = None
+ for attempt in range(4):
+  try:
+   res = post('state', p)
+   if isinstance(res, dict) and res.get('ok') and res.get('stored'):
+    break
+  except Exception as e:
+   res = {'error': str(e)[:200]}
+  time.sleep(20 * (attempt + 1))
+ print('state saved:', res)
+ if not (isinstance(res, dict) and res.get('ok') and res.get('stored')):
+  raise SystemExit('state not stored on the receiver, inbox kept for the next run')
  for f in ok_files:
-  get(action='done', id=f['id'])
+  for attempt in range(3):
+   try:
+    get(action='done', id=f['id'])
+    break
+   except Exception:
+    time.sleep(10)
 runlog(stage='done', files=len(files), rows=added)
 print('OK rows added', added)

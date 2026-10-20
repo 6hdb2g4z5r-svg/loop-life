@@ -41,8 +41,25 @@ n="$(echo "$out" | sed -n 's/^inbox files: \([0-9]*\).*/\1/p' | head -1)"
 echo "$out" | grep -q '^OK rows added' || { echo "refresh failed"; exit 1; }
 
 # 4. publish the new dashboard data to the receiver (the iPhone app reads "dash")
-if [ "${n:-0}" != 0 ] || [ ! -s prev.html ]; then
-  echo "dash stored: $(post dash dash.json)"
+#    Also re-publish when the receiver's copy lags behind the data we hold (a previous run's POST was lost in a
+#    receiver outage after the inbox had already been consumed): compare the "sync" stamps of both copies.
+need=0
+if [ "${n:-0}" != 0 ] || [ ! -s prev.html ]; then need=1; else
+  need="$(python3 - <<'PY'
+import json
+try:
+    a = json.load(open('prev_dash.json')).get('sync') or {}
+    b = json.load(open('dash.json')).get('sync') or {}
+    keys = ('hr_any', 'watch_hr', 'steps', 'sleep', 'workout', 'gband')
+    print(1 if any(str(a.get(k) or '') < str(b.get(k) or '') for k in keys) else 0)
+except Exception:
+    print(1)
+PY
+)"
+fi
+if [ "$need" = 1 ]; then
+  r="$(post dash dash.json)"; echo "dash stored: ${r:0:200}"
+  echo "$r" | grep -q '"stored"' || { echo "dash NOT stored on the receiver (it will be re-published next run)"; DASH_FAIL=1; }
 fi
 
 # 5. Notifications (iPhone push once subscribed, else Telegram)
@@ -65,5 +82,6 @@ elif [ -s prev.html ]; then
   python3 "$HERE/notify.py" tg_notify.py prev.html dash.json tg.txt plan.json || echo "telegram step failed"
 fi
 python3 "$HERE/coach.py" dash.json || echo "coach step failed"
-python3 -c "import json,datetime as d;D=json.load(open('dash.json'));t=d.datetime.utcnow().date().isoformat();x=D['days'].get(t,{});print('today',t,'rec',x.get('rec'),'sleep',x.get('sleep'),'strain',x.get('strain'))" || true
+python3 -c "import json;D=json.load(open('dash.json'));t=D.get('today');x=D['days'].get(t,{});print('today',t,'rec',x.get('rec'),'sleep',x.get('sleep'),'strain',x.get('strain'))" || true
 rm -f receiver.txt tg.txt
+[ "${DASH_FAIL:-0}" = 0 ] || exit 1   # make a lost publish visible in the Actions list
