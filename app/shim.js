@@ -352,11 +352,29 @@
     }
     return o;
   }
+  // short log of AI calls (what, how long, ok or why it failed) kept on the owner's receiver, last 20
+  var logQ = [], logT = null;
+  function aiLog(e) {
+    logQ.push(e); clearTimeout(logT);
+    logT = setTimeout(function () {
+      var add = logQ; logQ = [];
+      fetch(rq({ action: 'state', name: 'ai_log' }), { cache: 'no-store' }).then(function (r) { return r.text(); }).then(function (t) {
+        var cur = []; try { var j = JSON.parse(t); if (Array.isArray(j.items)) cur = j.items; } catch (x) {}
+        return fetch(rq({ store: 'ai_log' }), { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ items: cur.concat(add).slice(-20) }) });
+      }).catch(function () {});
+    }, 1500);
+  }
   sample.json = function (input, opts) {
+    var t0 = Date.now(), what = (typeof input === 'string' ? input : JSON.stringify(input)).slice(0, 90);
+    if (!(opts && opts.__retry)) aiLog({ ts: new Date().toISOString(), what: what, ev: 'start' });
+    return sampleJson(input, opts).then(function (v) { aiLog({ ts: new Date().toISOString(), what: what, ev: 'ok', ms: Date.now() - t0 }); return v; },
+      function (e) { aiLog({ ts: new Date().toISOString(), what: what, ev: 'fail', ms: Date.now() - t0, code: e && e.code, msg: String(e && e.message || e).slice(0, 200) }); throw e; });
+  };
+  function sampleJson(input, opts) {
     return sample(input, opts).then(function (r) {
       try { return parseJSON(r.text); }
       catch (e0) {
-        if (!(opts && opts.__retry)) return sample.json(input, Object.assign({}, opts || {}, { cache: false, __retry: true }));
+        if (!(opts && opts.__retry)) return sampleJson(input, Object.assign({}, opts || {}, { cache: false, __retry: true }));
         var e = e0;
         apiToast(r.truncated ? 'réponse coupée (trop longue). Réessaie.' : 'réponse illisible du modèle ' + r.modelApplied + '. Réessaie.');
         try {  // keep the failed reply on the owner's receiver for diagnosis
