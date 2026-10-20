@@ -282,6 +282,13 @@
     inflight++;
     return sample0(input, opts).then(function (v) { inflight--; return v; }, function (e) { inflight--; throw e; });
   }
+  // "no extended thinking" is spelled differently per model: start with {type:'disabled'} and, if the API
+  // answers with the right spelling for this model, remember it (per model, on this device) and retry once
+  function thinkParam(model) { try { var v = localStorage.getItem('ll_think_' + model); if (v === 'omit') return null; if (v) return { type: v }; } catch (e) {} return { type: 'disabled' }; }
+  function learnThink(model, msg) {
+    var m = /"thinking":\s*\{\s*"type":\s*"([a-z_]+)"\s*\}\s*instead/i.exec(msg || '');
+    try { localStorage.setItem('ll_think_' + model, m ? m[1] : 'omit'); } catch (e) {}
+  }
   function sample0(input, opts) {
     opts = opts || {};
     if (!CFG.anthropicKey) return Promise.reject(err('not_granted', 'Add your Claude API key in Loop Life settings to use the AI coach.'));
@@ -300,13 +307,14 @@
         return fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST', signal: opts.signal,
           headers: { 'content-type': 'application/json', 'x-api-key': CFG.anthropicKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-          body: JSON.stringify({ model: model, max_tokens: opts.maxTokens || 16000, stream: true, thinking: { type: 'disabled' }, messages: messages })
+          body: JSON.stringify(Object.assign({ model: model, max_tokens: opts.maxTokens || 16000, stream: true, messages: messages }, thinkParam(model) ? { thinking: thinkParam(model) } : {}))
         });
       })
       .then(function (r) {
         if (!r.ok) return r.text().then(function (t) {
           var code = r.status === 429 ? 'rate_limited' : (r.status === 401 || r.status === 403) ? 'not_granted' : r.status === 400 ? 'invalid_argument' : 'unavailable';
           var m = t; try { m = JSON.parse(t).error.message; } catch (e) {}
+          if (r.status === 400 && /thinking/i.test(m) && !opts.__think) { learnThink(model, m); return sample0(input, Object.assign({}, opts, { __think: true })); }
           throw err(code, 'Claude API ' + r.status + ': ' + m);
         });
         var reader = r.body.getReader(), dec = new TextDecoder(), buf = '', text = '', stop = null, blocks = [], outTok = null;

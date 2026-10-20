@@ -136,9 +136,22 @@ button{flex:1;padding:14px;border:0;border-radius:12px;font:600 16px/1 inherit;f
       if (!key) { $('ast').textContent = 'Aucune clé API saisie.'; return; }
       $('ast').textContent = 'Test en cours…';
       Promise.all(ms.map(function (m) {
-        return fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-          body: JSON.stringify({ model: m, max_tokens: 5, thinking: { type: 'disabled' }, messages: [{ role: 'user', content: 'ok' }] }) })
-          .then(function (r) { return r.text().then(function (t) { if (r.ok) return m + ' : OK'; var x = t; try { x = JSON.parse(t).error.message; } catch (e) {} return m + ' : erreur ' + r.status + ' (' + x + ')'; }); })
+        var call = function (th) {
+          var b = { model: m, max_tokens: 5, messages: [{ role: 'user', content: 'ok' }] }; if (th) b.thinking = th;
+          return fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' }, body: JSON.stringify(b) })
+            .then(function (r) { return r.text().then(function (t) { return { r: r, t: t }; }); });
+        };
+        var saved = null; try { saved = localStorage.getItem('ll_think_' + m); } catch (e) {}
+        return call(saved === 'omit' ? null : { type: saved || 'disabled' })
+          .then(function (x) {
+            var msg = x.t; try { msg = JSON.parse(x.t).error.message; } catch (e) {}
+            if (x.r.status === 400 && /thinking/i.test(msg)) {   // learn this model's spelling of "no thinking", like the coach does
+              var s = /"thinking":\s*\{\s*"type":\s*"([a-z_]+)"\s*\}\s*instead/i.exec(msg); try { localStorage.setItem('ll_think_' + m, s ? s[1] : 'omit'); } catch (e) {}
+              return call(s ? { type: s[1] } : null);
+            }
+            return x;
+          })
+          .then(function (x) { if (x.r.ok) return m + ' : OK'; var e2 = x.t; try { e2 = JSON.parse(x.t).error.message; } catch (e) {} return m + ' : erreur ' + x.r.status + ' (' + e2 + ')'; })
           .catch(function (e) { return m + ' : réseau (' + e.message + ')'; });
       })).then(function (res) { $('ast').innerHTML = res.map(function (s) { return s.replace(/</g, '&lt;'); }).join('<br>'); });
     };
