@@ -65,8 +65,8 @@
     st.ready = load(top);
     return st;
   }
-  function load(top) {
-    var st = stores[top];
+  function load(top, attempt) {
+    var st = stores[top]; attempt = attempt || 0;
     return fetch(rq({ action: 'state', name: 'db_' + top }), { cache: 'no-store' })
       .then(function (r) { return r.text(); })
       .then(function (t) {
@@ -82,6 +82,8 @@
         try { localStorage.setItem('ll_dbc_' + top, JSON.stringify(docs)); } catch (e) {}
       })
       .catch(function (e) {
+        // the receiver sometimes answers empty: retry a few times before falling back to this device's copy
+        if (attempt < 3) return new Promise(function (r) { setTimeout(r, 1200 * (attempt + 1)); }).then(function () { return load(top, attempt + 1); });
         try { var c = localStorage.getItem('ll_dbc_' + top); if (c) st.docs = JSON.parse(c); } catch (x) {}
         st.offline = true;
         st.fails = (st.fails || 0) + 1;
@@ -129,8 +131,9 @@
     if (data === undefined) return freeze({ id: id, exists: false, data: function () { return undefined; }, metadata: META });
     var js = JSON.stringify(data), c = snapCache.get(full);
     if (c && c.json === js) return c.snap;
-    var frozen = deepFreeze(clone(data));
-    var s = freeze({ id: id, exists: true, data: function () { return frozen; }, metadata: META });
+    // like the claude.ai runtime, data() hands out a plain mutable copy (the dashboard edits loaded plans in place)
+    var copy = clone(data);
+    var s = freeze({ id: id, exists: true, data: function () { return clone(copy); }, metadata: META });
     snapCache.set(full, { json: js, snap: s });
     return s;
   }
