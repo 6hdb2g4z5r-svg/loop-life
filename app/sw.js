@@ -1,6 +1,6 @@
 /* Loop Life service worker: caches the app shell so the app opens offline.
    Dashboard data (template + dash) is cached by the loader itself in "ll-data-v1". */
-const SHELL = 'll-shell-v15';
+const SHELL = 'll-shell-v16';
 const FILES = ['./', 'index.html', 'shim.js', 'manifest.json', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', e => { e.waitUntil(caches.open(SHELL).then(c => c.addAll(FILES.map(f => new Request(f, { cache: 'reload' })))).then(() => self.skipWaiting())); });

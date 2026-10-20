@@ -61,7 +61,7 @@
   function store(top) {
     var st = stores[top];
     if (st) return st;
-    st = stores[top] = { docs: {}, ready: null, timer: null, saving: null };
+    st = stores[top] = { docs: {}, ready: null, timer: null, saving: null, dirty: {}, loaded: false };
     st.ready = load(top);
     return st;
   }
@@ -73,7 +73,10 @@
         var j = {};
         try { j = JSON.parse(t); } catch (e) { throw err('unavailable', 'receiver returned non-JSON'); }
         if (j && j.ok === false && j.error !== 'missing') throw err('unavailable', 'receiver: ' + j.error);
-        var docs = (j && j.docs && typeof j.docs === 'object') ? j.docs : {};
+        var missing = j && j.ok === false && j.error === 'missing';
+        if (!missing && !(j && j.docs && typeof j.docs === 'object')) throw err('unavailable', 'receiver returned no collection');   // hiccup: never treat as empty
+        var docs = missing ? {} : j.docs;
+        st.loaded = true;
         if (st.timer || st.saving) return;   // local edits pending: keep them
         st.docs = docs;
         try { localStorage.setItem('ll_dbc_' + top, JSON.stringify(docs)); } catch (e) {}
@@ -81,19 +84,40 @@
       .catch(function (e) {
         try { var c = localStorage.getItem('ll_dbc_' + top); if (c) st.docs = JSON.parse(c); } catch (x) {}
         st.offline = true;
+        st.fails = (st.fails || 0) + 1;
+        if (st.fails <= 6) setTimeout(function () { load(top).then(function () { if (st.loaded) notify(top); }); }, 2500 * st.fails);
       });
   }
-  function save(top) {
+  // Writes are read-modify-write: fetch the collection as it is on the receiver, apply only the documents
+  // this device changed, then store. A device that missed the initial load (network hiccup) can never wipe others.
+  function save(top, id, tries) {
     var st = stores[top];
+    if (id != null) st.dirty[id] = true;
     clearTimeout(st.timer);
     st.timer = setTimeout(function () {
       st.timer = null;
-      var body = JSON.stringify({ v: 1, docs: st.docs });
       try { localStorage.setItem('ll_dbc_' + top, JSON.stringify(st.docs)); } catch (e) {}
-      st.saving = fetch(rq({ store: 'db_' + top }), { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: body })
-        .then(function (r) { return r.json(); })
-        .then(function (j) { if (!j || !j.ok) console.warn('db save failed', top, j); })
-        .catch(function (e) { console.warn('db save failed', top, e); })
+      var dirty = st.dirty; st.dirty = {};
+      st.saving = fetch(rq({ action: 'state', name: 'db_' + top }), { cache: 'no-store' })
+        .then(function (r) { return r.text(); })
+        .then(function (t) {
+          var j = JSON.parse(t), missing = j && j.ok === false && j.error === 'missing';
+          if (!missing && !(j && j.docs && typeof j.docs === 'object')) throw new Error('no collection');
+          var base = missing ? {} : j.docs;
+          Object.keys(dirty).forEach(function (k) { if (st.docs[k] === undefined) delete base[k]; else base[k] = st.docs[k]; });
+          return fetch(rq({ store: 'db_' + top }), { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ v: 1, docs: base }) })
+            .then(function (r) { return r.json(); })
+            .then(function (res) {
+              if (!res || !res.ok) throw new Error('store failed');
+              Object.keys(base).forEach(function (k) { if (!st.dirty[k]) st.docs[k] = base[k]; });
+              st.loaded = true; notify(top);
+            });
+        })
+        .catch(function (e) {
+          console.warn('db save failed, retrying', top, e);
+          Object.keys(dirty).forEach(function (k) { st.dirty[k] = true; });
+          if ((tries || 0) < 5) setTimeout(function () { save(top, null, (tries || 0) + 1); }, 3000 * ((tries || 0) + 1));
+        })
         .then(function () { st.saving = null; });
     }, 600);
   }
@@ -130,9 +154,9 @@
     var ref = {
       id: s[s.length - 1], path: path,
       get: function () { var st = store(top); return st.ready.then(function () { return docSnap(path, st.docs[rest]); }); },
-      set: function (d) { checkBody(d); var st = store(top); return st.ready.then(function () { st.docs[rest] = clone(d); save(top); notify(top); }); },
-      update: function (d) { checkBody(d); var st = store(top); return st.ready.then(function () { if (st.docs[rest] === undefined) throw err('invalid_argument', 'update: document does not exist'); st.docs[rest] = merge(st.docs[rest], d); save(top); notify(top); }); },
-      delete: function () { var st = store(top); return st.ready.then(function () { if (rest in st.docs) { delete st.docs[rest]; save(top); notify(top); } }); },
+      set: function (d) { checkBody(d); var st = store(top); return st.ready.then(function () { st.docs[rest] = clone(d); save(top, rest); notify(top); }); },
+      update: function (d) { checkBody(d); var st = store(top); return st.ready.then(function () { if (st.docs[rest] === undefined) throw err('invalid_argument', 'update: document does not exist'); st.docs[rest] = merge(st.docs[rest], d); save(top, rest); notify(top); }); },
+      delete: function () { var st = store(top); return st.ready.then(function () { if (rest in st.docs) { delete st.docs[rest]; save(top, rest); notify(top); } }); },
       acquire: function () { return Promise.resolve({ acquired: true, expiresAt: new Date(Date.now() + 30000).toISOString() }); },
       onSnapshot: function (next, onErr) {
         var st = store(top), last, live = true;
