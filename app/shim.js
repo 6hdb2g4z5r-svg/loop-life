@@ -62,7 +62,13 @@
     var st = stores[top];
     if (st) return st;
     st = stores[top] = { docs: {}, ready: null, timer: null, saving: null, dirty: {}, loaded: false };
-    st.ready = load(top);
+    // show this device's last copy instantly, then refresh from the receiver in the background
+    var cached = null; try { cached = JSON.parse(localStorage.getItem('ll_dbc_' + top) || 'null'); } catch (e) {}
+    if (cached && typeof cached === 'object') {
+      st.docs = cached;
+      var fresh = load(top).then(function () { if (st.loaded) notify(top); });
+      st.ready = Promise.race([fresh, new Promise(function (r) { setTimeout(r, 1200); })]);   // wait at most 1.2 s for fresh data
+    } else st.ready = load(top);
     return st;
   }
   function load(top, attempt) {
