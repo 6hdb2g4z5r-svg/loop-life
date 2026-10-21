@@ -82,6 +82,24 @@ elif [ -s prev.html ]; then
   python3 "$HERE/notify.py" tg_notify.py prev.html dash.json tg.txt plan.json || echo "telegram step failed"
 fi
 python3 "$HERE/coach.py" dash.json || echo "coach step failed"
+# backups of the hand-entered collections (meals, weight, daily log, settings, plans): kept as bak_db_<name>,
+# refreshed only when the live copy did not suddenly shrink, so a receiver glitch can never overwrite a good backup
+for c in meals body daily settings weekplan bike muscles; do
+  rx "action=state&name=db_$c" > live.json || continue
+  rx "action=state&name=bak_db_$c" > bak.json || true
+  python3 - "$c" <<'PY' && post "bak_db_$c" live.json >/dev/null || true
+import json, sys
+def n(f):
+    try:
+        j = json.load(open(f)); return len(j['docs']) if isinstance(j.get('docs'), dict) else None
+    except Exception:
+        return None
+live, bak = n('live.json'), n('bak.json')
+ok = live is not None and (bak is None or live >= bak * 0.8 or bak < 5)
+print('backup', sys.argv[1], 'live', live, 'bak', bak, 'update' if ok else 'KEEP OLD BACKUP (live copy shrank)')
+sys.exit(0 if ok else 1)
+PY
+done
 python3 -c "import json;D=json.load(open('dash.json'));t=D.get('today');x=D['days'].get(t,{});print('today',t,'rec',x.get('rec'),'sleep',x.get('sleep'),'strain',x.get('strain'))" || true
 rm -f receiver.txt tg.txt
 [ "${DASH_FAIL:-0}" = 0 ] || exit 1   # make a lost publish visible in the Actions list

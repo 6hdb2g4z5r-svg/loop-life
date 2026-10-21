@@ -93,6 +93,14 @@
         st.loaded = true;
         if (st.timer || st.saving) return;   // local edits pending: keep them
         var mine = st.docs; Object.keys(st.dirty || {}).forEach(function (k) { if (mine[k] === undefined) delete docs[k]; else docs[k] = mine[k]; });   // unsent edits win
+        var nMine = Object.keys(mine).length, nRemote = Object.keys(docs).length;
+        if (nMine >= 5 && nRemote < nMine * 0.6) {
+          // the receiver lost documents (storage glitch): keep this device's copies and write them back
+          var lost = Object.keys(mine).filter(function (k) { return docs[k] === undefined; });
+          lost.forEach(function (k) { docs[k] = mine[k]; st.dirty[k] = true; });
+          console.warn('receiver copy of', top, 'shrank', nMine, '->', nRemote, ': restoring', lost.length);
+          setTimeout(function () { save(top); }, 500);
+        }
         st.docs = docs;
         try { localStorage.setItem('ll_dbc_' + top, JSON.stringify(docs)); } catch (e) {}
       })
@@ -122,6 +130,10 @@
           var j = JSON.parse(t), missing = j && j.ok === false && j.error === 'missing';
           if (!missing && !(j && j.docs && typeof j.docs === 'object')) throw new Error('no collection');
           var base = missing ? {} : j.docs;
+          var known = Object.keys(st.docs).length, nb = Object.keys(base).length;
+          if (known >= 5 && nb < known * 0.6) {   // receiver answered "missing"/a near-empty copy while this device knows many docs: restore, never wipe
+            Object.keys(st.docs).forEach(function (k) { if (base[k] === undefined && !dirty[k]) base[k] = st.docs[k]; });
+          }
           Object.keys(dirty).forEach(function (k) { if (st.docs[k] === undefined) delete base[k]; else base[k] = st.docs[k]; });
           return fetch(rq({ store: 'db_' + top }), { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ v: 1, docs: base }) })
             .then(function (r) { return r.json(); })
