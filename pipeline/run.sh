@@ -82,12 +82,16 @@ elif [ -s prev.html ]; then
   python3 "$HERE/notify.py" tg_notify.py prev.html dash.json tg.txt plan.json || echo "telegram step failed"
 fi
 python3 "$HERE/coach.py" dash.json || echo "coach step failed"
-# backups of the hand-entered collections (meals, weight, daily log, settings, plans): kept as bak_db_<name>,
-# refreshed only when the live copy did not suddenly shrink, so a receiver glitch can never overwrite a good backup
-for c in meals body daily settings weekplan bike muscles; do
+# Backups of everything entered by hand (meals, weight, daily log, settings, plans, labs, reports…):
+#  - bak_db_<name>: refreshed each run, but only if the live copy did not suddenly shrink (a receiver glitch can never
+#    overwrite a good backup);
+#  - bak_db_<name>_<weekday>: one dated copy per weekday, written during the 03:00 UTC hour → 7 days of history;
+#  - bak_state_<weekday>: the raw Health history, same daily rotation, only if it decodes and is not smaller.
+WD="$(date -u +%a)"; HR="$(date -u +%H)"
+for c in meals body daily settings weekplan bike muscles labs reports insights lifts gbhrv; do
   rx "action=state&name=db_$c" > live.json || continue
   rx "action=state&name=bak_db_$c" > bak.json || true
-  python3 - "$c" <<'PY' && post "bak_db_$c" live.json >/dev/null || true
+  if python3 - "$c" <<'PY'
 import json, sys
 def n(f):
     try:
@@ -99,7 +103,27 @@ ok = live is not None and (bak is None or live >= bak * 0.8 or bak < 5)
 print('backup', sys.argv[1], 'live', live, 'bak', bak, 'update' if ok else 'KEEP OLD BACKUP (live copy shrank)')
 sys.exit(0 if ok else 1)
 PY
+  then
+    post "bak_db_$c" live.json >/dev/null || true
+    [ "$HR" = "03" ] && post "bak_db_${c}_$WD" live.json >/dev/null || true
+  fi
 done
+if [ "$HR" = "03" ]; then
+  rx "action=state&name=state" > state_live.txt || true
+  rx "action=state&name=bak_state_$WD" > state_bak.txt || true
+  python3 - <<'PY' && post "bak_state_$WD" state_live.txt >/dev/null || true
+import base64, gzip, json, os, sys
+def rows(f):
+    try:
+        s = json.loads(gzip.decompress(base64.b64decode(open(f).read().strip()))); return len(json.dumps(s))
+    except Exception:
+        return None
+live, bak = rows('state_live.txt'), rows('state_bak.txt')
+ok = live is not None and (bak is None or live >= bak * 0.9)
+print('state backup', live, bak, 'update' if ok else 'skip')
+sys.exit(0 if ok else 1)
+PY
+fi
 python3 -c "import json;D=json.load(open('dash.json'));t=D.get('today');x=D['days'].get(t,{});print('today',t,'rec',x.get('rec'),'sleep',x.get('sleep'),'strain',x.get('strain'))" || true
 rm -f receiver.txt tg.txt
 [ "${DASH_FAIL:-0}" = 0 ] || exit 1   # make a lost publish visible in the Actions list
