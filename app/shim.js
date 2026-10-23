@@ -310,6 +310,11 @@
   }
   function sample0(input, opts) {
     opts = opts || {};
+    // Manual-only coach: the dashboard's automatic analyses (recovery, sleep, strain, objective, week plan, body,
+    // trends, health metrics, strength, workouts, weekly report) all call with {cache:true}; a tap on Refresh calls
+    // with {cache:false}. Block the automatic ones so the AI only runs when asked. Chat, meal estimates, photos and
+    // reviews never pass cache:true, so they are unaffected. Silent (no toast): the card keeps its last saved read.
+    if (opts.cache === true) return Promise.reject(err('manual_only', 'Coach updates only when you tap Refresh.'));
     if (!PROV.key) return Promise.reject(err('not_granted', 'Add your ' + PROV.name + ' API key in Loop Life settings to use the AI coach.'));
     var tier = opts.modelTier && PROV.models[opts.modelTier] ? opts.modelTier : 'default';
     // an explicit claude-* model from the dashboard is honoured only on the Claude provider; DeepSeek keeps its own tiers
