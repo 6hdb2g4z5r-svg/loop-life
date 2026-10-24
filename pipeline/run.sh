@@ -18,7 +18,7 @@ post() {   # retry until the receiver confirms "stored" (it sometimes answers a 
   local r=""; for i in 1 2 3 4 5; do r="$(curl -sSL --max-time 300 -H 'Content-Type: text/plain' --data-binary "@$2" "$RECEIVER_URL?key=$RECEIVER_KEY&store=$1")"; echo "$r" | grep -q '"stored"' && break; sleep $((i*5)); done; echo "$r"; }
 
 # 1. page template (kept on the receiver; refreshed whenever the dashboard design changes)
-for i in 1 2 3 4 5; do rx 'action=state&name=template' > template.html; grep -q '/\*DATA\*/' template.html && break; sleep 15; done
+for i in 1 2 3 4 5; do rx 'action=state&name=template' > template.html || true; grep -q '/\*DATA\*/' template.html && break; sleep 15; done
 [ "$(grep -c '/\*DATA\*/' template.html)" = 1 ] || { echo "template missing on receiver"; exit 1; }
 
 # 2. previous dashboard (for Telegram "what changed" detection)
