@@ -3,6 +3,12 @@ from datetime import datetime, timedelta, date
 raw = json.load(open(sys.argv[1]))
 OUT = sys.argv[2]
 rows = raw['rows']
+import os as _os
+# G Band nightly HRV (RMSSD) read from the G-Band cloud by gband_nightly.py; preferred over Apple Watch SDNN when present
+try:
+ GB = json.load(open(_os.path.join(_os.path.dirname(_os.path.abspath(sys.argv[1])), 'gband.json')))
+except Exception:
+ GB = {}
 workouts = raw['workouts']
 P = lambda s: datetime.strptime(s, '%Y-%m-%d %H:%M:%S')
 DOB = date(1994, 2, 10)
@@ -202,6 +208,7 @@ def run_vo2(w, rb):
 vo2run = []
 out_days = {}
 rhr_hist, hrv_hist, resp_hist, asleep_hist = ([], [], [], [])
+gb_hist = []
 prev_strain = None
 for i, d in enumerate(days):
  D = datetime.strptime(d, '%Y-%m-%d')
@@ -220,6 +227,12 @@ for i, d in enumerate(days):
  hrv = mean(hv)
  rr = [v for t, v in resp if sl and sl['start'] <= t <= sl['end']]
  rr = mean(rr) if rr else mean([v for t, v in resp if D - timedelta(hours=12) <= t <= D + timedelta(hours=12)])
+ g = GB.get(d) or {}
+ hsrc = 'watch' if hrv is not None else None
+ if g.get('hrv'):
+  hrv, hsrc = g['hrv'], 'gband'
+ if rr is None and g.get('resp'):
+  rr = g['resp']
 
  def base(h):
   h = [x for x in h[-30:] if x is not None]
@@ -229,7 +242,7 @@ for i, d in enumerate(days):
   sd = st.pstdev(h) or 1
   return (m, sd)
  bR, sR = base(rhr_hist)
- bH, sH = base(hrv_hist)
+ bH, sH = base(gb_hist if hsrc == 'gband' else hrv_hist)
  bP, sP = base(resp_hist)
  recent = [x for x in asleep_hist[-3:] if x is not None]
  debt = sum((max(0, 460 - x) for x in recent)) / max(1, len(recent)) * 0.5 if recent else 0
@@ -306,7 +319,7 @@ for i, d in enumerate(days):
  hr5 = collections.defaultdict(list)
  for t, v in samp:
   hr5[t.hour * 12 + t.minute // 5].append(v)
- out_days[d] = dict(rec=rec, hrv=round(hrv, 1) if hrv else None, rhr=round(rhr) if rhr else None, resp=round(rr, 1) if rr else None, bH=round(bH, 1) if bH else None, bR=round(bR, 1) if bR else None, bP=round(bP, 1) if bP else None, sleep=spf, sleepD=sd_, need=round(need), strain=strain, zones=[round(z) for z in zones], steps=round(steps.get(d, 0)), active=round(active.get(d, 0)), cal=round(active.get(d, 0) + basal.get(d, 0)), dist=round(dist.get(d, 0), 2), stressH=stress_h, stress=stress_avg, workouts=[dict(wk_out(w, i >= NDAYS - 35), **{'vo2e': e} if (e := run_vo2(w, rb)) else {}) for w in wk_today])
+ out_days[d] = dict(rec=rec, hrvSrc=hsrc, hrv=round(hrv, 1) if hrv else None, rhr=round(rhr) if rhr else None, resp=round(rr, 1) if rr else None, bH=round(bH, 1) if bH else None, bR=round(bR, 1) if bR else None, bP=round(bP, 1) if bP else None, sleep=spf, sleepD=sd_, need=round(need), strain=strain, zones=[round(z) for z in zones], steps=round(steps.get(d, 0)), active=round(active.get(d, 0)), cal=round(active.get(d, 0) + basal.get(d, 0)), dist=round(dist.get(d, 0), 2), stressH=stress_h, stress=stress_avg, workouts=[dict(wk_out(w, i >= NDAYS - 35), **{'vo2e': e} if (e := run_vo2(w, rb)) else {}) for w in wk_today])
  for x in out_days[d]['workouts']:
   if x.get('vo2e'):
    vo2run.append((d, x['vo2e']))
@@ -315,7 +328,8 @@ for i, d in enumerate(days):
  if i >= NDAYS - 35:
   out_days[d]['hr5'] = [round(mean(hr5[k])) if hr5.get(k) else None for k in range(288)]
  rhr_hist.append(rhr)
- hrv_hist.append(hrv)
+ hrv_hist.append(hrv if hsrc == 'watch' else None)
+ gb_hist.append(hrv if hsrc == 'gband' else None)
  resp_hist.append(rr)
  asleep_hist.append(sl['asleep'] if sl else None)
  prev_strain = strain

@@ -34,6 +34,17 @@ except Exception:
 open('prev.html', 'w').write(t.replace('/*DATA*/', d) if d else '')
 PY
 
+# 2b. G Band nightly HRV / respiratory rate, read-only from the G-Band cloud with the app's own session.
+#     The session headers live on the receiver ("gband_auth"), never in this public repo. Nights accumulate in "gband_nightly".
+rx 'action=state&name=gband_nightly' > gband.json || true
+python3 -c "import json;d=json.load(open('gband.json'));assert isinstance(d,dict) and 'ok' not in d" 2>/dev/null || echo '{}' > gband.json
+if rx 'action=state&name=gband_auth' > gband_auth.json && python3 -c "import json;assert 'Authorization' in json.load(open('gband_auth.json'))" 2>/dev/null; then
+  set +e; python3 -I -W ignore scripts/gband_nightly.py gband_auth.json gband.json 3; rc=$?; set -e
+  if [ $rc = 0 ]; then post gband_nightly gband.json >/dev/null || true
+  elif [ $rc = 3 ]; then echo "G Band session expired: capture a new token"; fi
+fi
+rm -f gband_auth.json
+
 # 3. refresh (unchanged script)
 out="$(python3 -I scripts/refresh.py "$W" 2>&1 || { sleep 30; python3 -I scripts/refresh.py "$W" 2>&1; })"
 echo "$out" | tail -12
@@ -125,5 +136,5 @@ sys.exit(0 if ok else 1)
 PY
 fi
 python3 -c "import json;D=json.load(open('dash.json'));t=D.get('today');x=D['days'].get(t,{});print('today',t,'rec',x.get('rec'),'sleep',x.get('sleep'),'strain',x.get('strain'))" || true
-rm -f receiver.txt tg.txt
+rm -f receiver.txt tg.txt gband_auth.json
 [ "${DASH_FAIL:-0}" = 0 ] || exit 1   # make a lost publish visible in the Actions list
