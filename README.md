@@ -10,7 +10,8 @@ entered once on the device (kept in the browser's local storage).
   `coach.py` sends the iPhone push notifications (rule-based), `notify.py` holds the push plumbing.
   `gband_nightly.py` reads the G Band cloud (read-only, the G Band app's own session stored on the receiver as
   `gband_auth`, never in this repo) and keeps nightly HRV (RMSSD) / respiratory rate in `gband_nightly`; Recovery uses
-  G Band HRV against its own baseline when present, Watch HRV otherwise. If the session expires the run logs it and
+  G Band HRV against its own baseline when present, Watch HRV otherwise. Daily steps also come from the G Band
+  (its own count, updated whenever the G Band app syncs), Watch steps otherwise. If the session expires the run logs it and
   falls back to the Watch: capture a new token from the G Band app and store it as `gband_auth`.
 
 AI coach: Claude by default; DeepSeek can be selected in the app settings (own API key, same request format).

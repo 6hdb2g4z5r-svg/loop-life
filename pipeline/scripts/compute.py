@@ -144,6 +144,12 @@ def daily_sum(t, pick='max'):
   per[sd[:10]][s] += float(v)
  return {d: max(v.values()) for d, v in per.items()}
 steps = daily_sum('StepCount')
+# steps: the G Band's own daily count from the G-Band cloud when present (the band is worn all day, the Watch is not)
+steps_src = {}
+for _d, _g in GB.items():
+ if _g.get('steps') is not None:
+  steps[_d] = _g['steps']
+  steps_src[_d] = 'gband'
 active = {d: v for d, v in daily_sum('ActiveEnergyBurned').items()}
 basal = daily_sum('BasalEnergyBurned')
 dist = daily_sum('DistanceWalkingRunning')
@@ -319,7 +325,7 @@ for i, d in enumerate(days):
  hr5 = collections.defaultdict(list)
  for t, v in samp:
   hr5[t.hour * 12 + t.minute // 5].append(v)
- out_days[d] = dict(rec=rec, hrvSrc=hsrc, hrv=round(hrv, 1) if hrv else None, rhr=round(rhr) if rhr else None, resp=round(rr, 1) if rr else None, bH=round(bH, 1) if bH else None, bR=round(bR, 1) if bR else None, bP=round(bP, 1) if bP else None, sleep=spf, sleepD=sd_, need=round(need), strain=strain, zones=[round(z) for z in zones], steps=round(steps.get(d, 0)), active=round(active.get(d, 0)), cal=round(active.get(d, 0) + basal.get(d, 0)), dist=round(dist.get(d, 0), 2), stressH=stress_h, stress=stress_avg, workouts=[dict(wk_out(w, i >= NDAYS - 35), **{'vo2e': e} if (e := run_vo2(w, rb)) else {}) for w in wk_today])
+ out_days[d] = dict(rec=rec, hrvSrc=hsrc, stepsSrc=steps_src.get(d, 'watch'), hrv=round(hrv, 1) if hrv else None, rhr=round(rhr) if rhr else None, resp=round(rr, 1) if rr else None, bH=round(bH, 1) if bH else None, bR=round(bR, 1) if bR else None, bP=round(bP, 1) if bP else None, sleep=spf, sleepD=sd_, need=round(need), strain=strain, zones=[round(z) for z in zones], steps=round(steps.get(d, 0)), active=round(active.get(d, 0)), cal=round(active.get(d, 0) + basal.get(d, 0)), dist=round(dist.get(d, 0), 2), stressH=stress_h, stress=stress_avg, workouts=[dict(wk_out(w, i >= NDAYS - 35), **{'vo2e': e} if (e := run_vo2(w, rb)) else {}) for w in wk_today])
  for x in out_days[d]['workouts']:
   if x.get('vo2e'):
    vo2run.append((d, x['vo2e']))

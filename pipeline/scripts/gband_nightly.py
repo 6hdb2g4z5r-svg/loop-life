@@ -9,6 +9,7 @@ and computes, for each night, over the G-Band sleep window:
   spo2     blood oxygen (%, mean)
   temp     body temperature (deg C, mean)
   sleep    asleep / deep / light minutes, start and end (UTC)
+and, for each calendar day, the band's step count and distance (steps, dist km).
 
 Usage:  python3 -I gband_nightly.py HEADERS_JSON OUT_JSON [DAYS]
 HEADERS_JSON holds {"Authorization": "token ...", "User-Agent": ..., ...}.
@@ -94,6 +95,10 @@ def nightly(data):
             'spo2': round(st.mean(ox), 1) if ox else None,
             'temp': round(st.mean(tp), 2) if tp else None,
         }
+    for day in data:
+        sp = day.get('sport') or {}
+        if sp.get('step') is not None:
+            out.setdefault(day['date'], {}).update(steps=int(sp['step']), dist=round(float(sp.get('dis') or 0), 2))
     return dict(sorted(out.items()))
 
 
@@ -106,7 +111,8 @@ if __name__ == '__main__':
         prev = json.load(open(sys.argv[2]))
     except Exception:
         pass
-    prev.update(res)
+    for k, v in res.items():
+        prev.setdefault(k, {}).update(v)
     json.dump(dict(sorted(prev.items())), open(sys.argv[2], 'w'), indent=1)
     for k, v in res.items():
-        print(k, 'HRV', v['hrv'], 'ms (n', v['hrv_n'], ') RHR', v['rhr'], 'resp', v['resp'], 'SpO2', v['spo2'])
+        print(k, 'HRV', v.get('hrv'), 'ms (n', v.get('hrv_n'), ') RHR', v.get('rhr'), 'resp', v.get('resp'), 'steps', v.get('steps'))
