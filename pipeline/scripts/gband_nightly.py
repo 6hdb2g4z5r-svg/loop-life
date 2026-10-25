@@ -121,6 +121,8 @@ def nightly(data):
         rs = [x for x in (first(b.get('resRates')) for b in inn) if x]
         ox = [x for x in (first(b.get('oxygens')) for b in inn) if x]
         tp = [b['temperature']['body'] for b in inn if (b.get('temperature') or {}).get('body')]
+        if (s.get('sleepDuration') or 0) < 45:
+            continue  # band taken off and left still (shower, charging): not a sleep
         key = (t0 + dt.timedelta(hours=6)).date().isoformat()  # same rule as the dashboard: sleep starting 18:00 UTC onward counts for the next day
         if key in out and (out[key].get('asleep') or 0) >= (s.get('sleepDuration') or 0):
             continue  # keep the main sleep of the night, not a nap
@@ -170,6 +172,8 @@ if __name__ == '__main__':
         pass
     for k, v in res.items():
         p = prev.setdefault(k, {})
+        if 'start' in v and p.get('start') and p['start'] != v['start'] and (p.get('asleep') or 0) > (v.get('asleep') or 0):
+            v = {a: b for a, b in v.items() if a in ('steps', 'dist')}  # never let a shorter sleep replace the stored night
         if 'start' in v:  # a fresh read of the night replaces the stored one entirely
             for a in [a for a in p if a not in ('steps', 'dist')]:
                 del p[a]
