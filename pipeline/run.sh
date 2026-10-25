@@ -62,7 +62,10 @@ try:
     a = json.load(open('prev_dash.json')).get('sync') or {}
     b = json.load(open('dash.json')).get('sync') or {}
     keys = ('hr_any', 'watch_hr', 'steps', 'sleep', 'workout', 'gband')
-    print(1 if any(str(a.get(k) or '') < str(b.get(k) or '') for k in keys) else 0)
+    A, B = json.load(open('prev_dash.json')), json.load(open('dash.json'))
+    recent = lambda D: {d: {k: v for k, v in D['days'].get(d, {}).items() if k != 'hr5'} for d in D['order'][-10:]}
+    # also re-publish when the scores changed without new phone data (G Band cloud nights, code fixes)
+    print(1 if any(str(a.get(k) or '') < str(b.get(k) or '') for k in keys) or recent(A) != recent(B) else 0)
 except Exception:
     print(1)
 PY
