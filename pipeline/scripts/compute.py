@@ -254,6 +254,7 @@ out_days = {}
 rhr_hist, hrv_hist, resp_hist, asleep_hist = ([], [], [], [])
 gb_hist = []
 gbr_hist, gbp_hist = ([], [])
+gbt_hist, gbs_hist, gbm_hist, ill_prev = ([], [], [], 0)
 prev_strain = None
 for i, d in enumerate(days):
  D = datetime.strptime(d, '%Y-%m-%d')
@@ -371,11 +372,40 @@ for i, d in enumerate(days):
  for t, v in samp:
   hr5[t.hour * 12 + t.minute // 5].append(v)
  out_days[d] = dict(rec=rec, hrvSrc=hsrc, stepsSrc=steps_src.get(d, 'watch'), hrv=round(hrv, 1) if hrv else None, rhr=round(rhr) if rhr else None, resp=round(rr, 1) if rr else None, bH=round(bH, 1) if bH else None, bR=round(bR, 1) if bR else None, bP=round(bP, 1) if bP else None, sleep=spf, sleepD=sd_, need=round(need), strain=strain, zones=[round(z) for z in zones], steps=round(steps.get(d, 0)), active=round(active.get(d, 0)), cal=round(active.get(d, 0) + basal.get(d, 0)), dist=round(dist.get(d, 0), 2), stressH=stress_h, stress=stress_avg, workouts=[dict(wk_out(w, i >= NDAYS - 35), **{'vo2e': e} if (e := run_vo2(w, rb)) else {}) for w in wk_today])
+ # ---- Health monitor / illness signal: tonight vs your own normal (prior 30 nights, at least 7) ----
+ tN, sN = g.get('temp'), g.get('spo2')
+ def _b(hh):
+  v = [x for x in hh[-30:] if x is not None]
+  return (mean(v), st.pstdev(v) or 0.01) if len(v) >= 7 else (None, None)
+ bT, sT = _b(gbt_hist); bS, sS = _b(gbs_hist)
+ bR7, sR7 = _b(gbr_hist if rsrc == 'gband' else rhr_hist)
+ bH7, sH7 = _b(gb_hist if hsrc == 'gband' else hrv_hist)
+ bP7, sP7 = _b(gbp_hist if psrc == 'gband' else resp_hist)
+ mon = []
+ if rhr is not None and bR7:
+  mon.append(['rhr', round(rhr), round(bR7, 1), rhr - bR7 <= max(3, 1.5 * sR7), 'up'])
+ if hrv is not None and bH7:
+  mon.append(['hrv', round(hrv), round(bH7, 1), hrv >= bH7 - max(0.15 * bH7, 1.5 * sH7), 'down'])
+ if rr is not None and bP7:
+  mon.append(['resp', round(rr, 1), round(bP7, 1), rr - bP7 <= max(1.0, 1.5 * sP7), 'up'])
+ if tN is not None and bT:
+  mon.append(['temp', round(tN, 2), round(bT, 2), tN - bT <= max(0.4, 1.5 * sT), 'up'])
+ if sN is not None and bS:
+  mon.append(['spo2', round(sN, 1), round(bS, 1), sN >= min(bS - max(1.5, 2 * sS), 95) and sN >= 93, 'down'])
+ n_out = sum(1 for m in mon if not m[3])
+ lvl = 2 if n_out >= 3 or (n_out >= 2 and ill_prev >= 2) else 1 if n_out >= 2 else 0
+ out_days[d]['ill'] = dict(level=lvl, out=n_out, n=len(mon), m=mon) if mon else None
+ ill_prev = n_out if mon else 0
  for x in out_days[d]['workouts']:
   if x.get('vo2e'):
    vo2run.append((d, x['vo2e']))
  if sl:
   out_days[d]['sl'] = dict(start=sl['start'].strftime('%H:%M'), end=sl['end'].strftime('%H:%M'), asleep=round(sl['asleep']), inbed=round(sl['inbed']), light=round(sl['light']), deep=round(sl['deep']), rem=round(sl['rem']), awake=round(sl['awake']), hyp=sl['hyp'], src=sleep_src.get(d, '').replace('other:', ''))
+ if g.get('moves') is not None and out_days[d].get('sl'):
+  out_days[d]['sl']['moves'] = g['moves']
+  mvb = [x for x in gbm_hist[-30:] if x is not None]
+  out_days[d]['sl']['movesB'] = round(mean(mvb), 1) if len(mvb) >= 3 else None
+ gbt_hist.append(tN); gbs_hist.append(sN); gbm_hist.append(g.get('moves'))
  if i >= NDAYS - 35:
   out_days[d]['hr5'] = [round(mean(hr5[k])) if hr5.get(k) else None for k in range(288)]
  rhr_hist.append(rhr if rsrc != 'gband' else None)

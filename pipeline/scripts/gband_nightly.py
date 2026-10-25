@@ -34,7 +34,7 @@ def clock_at(local_naive):
 
 
 def fetch(headers, days):
-    cmd = ['curl', '-sS', '-m', '120', '-w', '\n%{http_code}']
+    cmd = ['curl', '-sS', '-m', '300', '-w', '\n%{http_code}']
     for k, v in headers.items():
         cmd += ['-H', f'{k}: {v}']
     cmd.append(API.format(days))
@@ -121,6 +121,8 @@ def nightly(data):
         rs = [x for x in (first(b.get('resRates')) for b in inn) if x]
         ox = [x for x in (first(b.get('oxygens')) for b in inn) if x]
         tp = [b['temperature']['body'] for b in inn if (b.get('temperature') or {}).get('body')]
+        oxa = [x for b in inn for x in (b.get('oxygens') or []) if x not in BAD]
+        mv = [x for b in inn for x in (b.get('sleepActivitys') or []) if x != 255]  # movement per minute while asleep
         if (s.get('sleepDuration') or 0) < 45:
             continue  # band taken off and left still (shower, charging): not a sleep
         key = (t0 + dt.timedelta(hours=6)).date().isoformat()  # same rule as the dashboard: sleep starting 18:00 UTC onward counts for the next day
@@ -137,6 +139,8 @@ def nightly(data):
             'resp': round(st.mean(rs), 1) if rs else None,
             'spo2': round(st.mean(ox), 1) if ox else None,
             'temp': round(st.mean(tp), 2) if tp else None,
+            'spo2_min': min(oxa) if oxa else None,
+            'moves': round(sum(1 for x in mv if x > 0) / (len(mv) / 60), 1) if len(mv) >= 60 else None,  # minutes with movement per hour
         }
     for day in data:
         sp = day.get('sport') or {}
