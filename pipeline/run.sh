@@ -78,6 +78,17 @@ if [ "$need" = 1 ]; then
   echo "$r" | grep -q '"stored"' || { echo "dash NOT stored on the receiver (it will be re-published next run)"; DASH_FAIL=1; }
 fi
 
+# 4b. Small summary for the iPhone home-screen widget (Scriptable): today's dials only, a few hundred bytes
+python3 - <<'PY' && post widget widget.json >/dev/null || true
+import json
+D = json.load(open('dash.json')); t = D.get('today'); x = D['days'].get(t, {})
+y = D['days'].get(D['order'][-2], {}) if len(D['order']) > 1 else {}
+sl = x.get('sl') or {}
+json.dump(dict(built=D.get('built'), day=t, rec=x.get('rec'), sleep=x.get('sleep'), strain=x.get('strain'),
+               hrv=x.get('hrv'), rhr=x.get('rhr'), steps=x.get('steps'), asleep=sl.get('asleep'),
+               strain_y=y.get('strain')), open('widget.json', 'w'))
+PY
+
 # 5. Notifications (iPhone push once subscribed, else Telegram)
 python3 "$HERE/notify.py" --ensure-vapid || true
 python3 - <<'PY'
