@@ -46,6 +46,27 @@ for _k, _g in _gb_nights:
   _i = _j
 rows = rows + _add
 workouts = raw['workouts']
+# The same workout (same id) can come back from a later Health Auto Export with its times shifted by the phone's
+# new time zone. Keep, for each id, the copy during which the heart rate was actually up.
+_byid = collections.defaultdict(list)
+for _w in workouts:
+ _byid[_w.get('id') or _w['start']].append(_w)
+if any(len(v) > 1 for v in _byid.values()):
+ _dd = {w['start'][:10] for v in _byid.values() if len(v) > 1 for w in v}
+ _hr = collections.defaultdict(list)
+ for _r in rows:
+  if _r[0] == 'HeartRate' and _r[2][:10] in _dd:
+   try:
+    _hr[_r[2][:16]].append(float(_r[4]))
+   except Exception:
+    pass
+ def _wscore(w):
+  t, e, v = _D.strptime(w['start'][:16], '%Y-%m-%d %H:%M'), w['end'][:16], []
+  while t.strftime('%Y-%m-%d %H:%M') <= e:
+   v += _hr.get(t.strftime('%Y-%m-%d %H:%M'), [])
+   t += _T(minutes=1)
+  return sum(v) / len(v) if v else 0
+ workouts = sorted([max(v, key=_wscore) if len(v) > 1 else v[0] for v in _byid.values()], key=lambda w: w['start'])
 # ---- Everything below runs on the user's LOCAL clock: days, sleep windows, hours of the day, workout times. ----
 # Stored timestamps are UTC; TZ lists the local offset (minutes) from a UTC instant onward. Extend it when moving
 # time zone (same instants as CLOCK in gband_nightly.py). Morocco = UTC+0.
