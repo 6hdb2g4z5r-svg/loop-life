@@ -84,7 +84,7 @@ function dial(value, max, color, unit) {
 const d = await load();
 const w = new ListWidget();
 const g = new LinearGradient(); g.colors = [C.bg2, C.bg]; g.locations = [0, 1]; w.backgroundGradient = g;
-w.url = APP; w.setPadding(14, 12, 12, 14);
+w.url = APP; w.setPadding(14, 14, 12, 14);
 w.refreshAfterDate = new Date(Date.now() + 20 * 60 * 1000);
 
 if (!RECEIVER || !KEY || !d) {
@@ -97,17 +97,15 @@ if (!RECEIVER || !KEY || !d) {
     ['STRAIN', d.strain, 21, C.strain, ''],
     ['NUTRITION', d.nut, 100, scoreCol(d.nut), 'score'],
   ];
+  w.addSpacer(2);
   const row = w.addStack(); row.layoutHorizontally(); row.topAlignContent();
   items.forEach(([label, v, max, col, unit], i) => {
     if (i) row.addSpacer();
-    const cell = row.addStack(); cell.layoutVertically(); cell.size = new Size(74, 0);
-    const a = cell.addStack(); a.addSpacer();
-    const img = a.addImage(dial(v, max, col, unit)); img.imageSize = new Size(70, 70);
-    a.addSpacer();
-    cell.addSpacer(9);
-    const b = cell.addStack(); b.addSpacer();
-    const t = b.addText(label); t.font = Font.heavySystemFont(10); t.textColor = col; t.lineLimit = 1; t.minimumScaleFactor = 0.75;
-    b.addSpacer();
+    const cell = row.addStack(); cell.layoutVertically(); cell.centerAlignContent();
+    const img = cell.addImage(dial(v, max, col, unit)); img.imageSize = new Size(72, 72); img.centerAlignImage();
+    cell.addSpacer(8);
+    const b = cell.addStack(); b.size = new Size(72, 14); b.centerAlignContent();
+    const t = b.addText(label); t.font = Font.heavySystemFont(10); t.textColor = col; t.lineLimit = 1; t.minimumScaleFactor = 0.7; t.centerAlignText();
   });
   w.addSpacer();
   const foot = w.addStack(); foot.layoutHorizontally(); foot.centerAlignContent();
