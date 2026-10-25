@@ -133,7 +133,7 @@ sleep = {}
 sleep_src = {}
 for d in days:
  cands = {g: main_block(sg, d) for g, sg in segs_by.items()}
- cands = {g: c for g, c in cands.items() if c and c[1] >= 120 * 60}
+ cands = {g: c for g, c in cands.items() if c and c[1] >= 90 * 60}
  if not cands:
   continue
  longest = max((c[1] for c in cands.values()))
@@ -170,7 +170,7 @@ for d in days:
    tot[x[2]] += (x[1] - a0).total_seconds() / 60
   last = x[1] if last is None else max(last, x[1])
  asleep = tot['light'] + tot['deep'] + tot['rem']
- if asleep < 120:
+ if asleep < 90:
   continue
  start, end = (blk[0][0], max((x[1] for x in blk)))
  span = (end - start).total_seconds() / 60
