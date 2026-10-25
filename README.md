@@ -27,3 +27,6 @@ Operating notes:
   whenever the receiver's copy lags behind the data held.
 
 Install: open the Pages URL in Safari → Share → *Add to Home Screen*.
+
+Home-screen widget: `tools/widget-scriptable.js` for the Scriptable app (4 dials: Recovery, Sleep, Strain, Nutrition).
+The refresh publishes a small `widget` summary; the app saves today's nutrition score to `db_widget` when Home renders.
