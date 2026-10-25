@@ -33,6 +33,35 @@ def clock_at(local_naive):
     return off
 
 
+def off_utc(t_utc):
+    """Offset (minutes) of the user's local clock at a UTC instant."""
+    off = 0
+    for since, m in CLOCK:
+        if t_utc >= dt.datetime.fromisoformat(since):
+            off = m
+    return off
+
+
+def merge(sleeps, gap_max=60):
+    """The band splits one night when you stir (e.g. 18:49-19:44 then 20:00-02:43): join pieces <= gap_max min apart."""
+    out = []
+    for t0, t1, s in sorted(sleeps, key=lambda x: x[0]):
+        if out and 0 <= (t0 - out[-1][1]).total_seconds() / 60 <= gap_max:
+            a0, a1, a = out[-1]
+            step = a.get('onePointDuration') or 60
+            gap = round((t0 - a1).total_seconds() / step)
+            m = dict(a)
+            m['sleepLine'] = (a.get('sleepLine') or '') + '3' * gap + (s.get('sleepLine') or '')
+            for k in ('sleepDuration', 'deepDuration', 'lightDuration'):
+                m[k] = (a.get(k) or 0) + (s.get(k) or 0)
+            m['accurateType'] = 1 if a.get('accurateType') == 1 and s.get('accurateType') == 1 else 0
+            m['pieces'] = a.get('pieces', 1) + 1
+            out[-1] = (a0, max(a1, t1), m)
+        else:
+            out.append((t0, t1, s))
+    return out
+
+
 def fetch(headers, days):
     cmd = ['curl', '-sS', '--compressed', '-m', os.environ.get('GBAND_TIMEOUT', '300'), '-w', '\n%{http_code}']
     for k, v in headers.items():
@@ -134,7 +163,7 @@ def nightly(data):
             t1 = t0 + dt.timedelta(seconds=s['wakeTime'] - s['sleepTime'])
             sleeps[t0] = (t0, t1, s)
     out = {}
-    for t0, t1, s in sorted(sleeps.values(), key=lambda x: x[2].get('sleepDuration') or 0):
+    for t0, t1, s in sorted(merge(sleeps.values()), key=lambda x: x[2].get('sleepDuration') or 0):
         inn = [b for t, b in blocks if t0 <= t < t1]
         hv = [v for v in (rmssd(rr(b)) for b in inn) if v is not None]
         ha = [v for v in (masd(rr(b)) for b in inn) if v is not None]
@@ -150,7 +179,8 @@ def nightly(data):
         odi, ox90 = dips(oxa, (s.get('sleepDuration') or 0) / 60)
         if (s.get('sleepDuration') or 0) < 45:
             continue  # band taken off and left still (shower, charging): not a sleep
-        key = (t0 + dt.timedelta(hours=6)).date().isoformat()  # same rule as the dashboard: sleep starting 18:00 UTC onward counts for the next day
+        # same rule as the dashboard, on the LOCAL clock: a sleep starting 18:00 local or later counts for the next day
+        key = (t0 + dt.timedelta(minutes=off_utc(t0) + 360)).date().isoformat()
         if key in out and (out[key].get('asleep') or 0) >= (s.get('sleepDuration') or 0):
             continue  # keep the main sleep of the night, not a nap
         out[key] = {
@@ -158,7 +188,7 @@ def nightly(data):
             'asleep': s.get('sleepDuration'), 'deep': s.get('deepDuration'), 'light': s.get('lightDuration'),
             'line': line, 'step': step, 'sci': sci,
             'rem': rem if sci else None, 'awake': aw, 'deep_line': dp,
-            'odi': odi, 'ox90': ox90, 'ox_n': len(oxa),
+            'odi': odi, 'ox90': ox90, 'ox_n': len(oxa), 'pieces': s.get('pieces', 1),
             'hrv': round(st.median(hv), 1) if len(hv) >= 8 else None,
             'hrv_app': round(st.mean(ha), 1) if ha else None,
             'hrv_n': len(hv),

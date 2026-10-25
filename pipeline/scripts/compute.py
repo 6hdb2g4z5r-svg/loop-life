@@ -46,6 +46,25 @@ for _k, _g in _gb_nights:
   _i = _j
 rows = rows + _add
 workouts = raw['workouts']
+# ---- Everything below runs on the user's LOCAL clock: days, sleep windows, hours of the day, workout times. ----
+# Stored timestamps are UTC; TZ lists the local offset (minutes) from a UTC instant onward. Extend it when moving
+# time zone (same instants as CLOCK in gband_nightly.py). Morocco = UTC+0.
+TZ = [('2000-01-01 00:00:00', 0), ('2026-10-25 04:00:00', 480)]
+def _shift(t):
+ if not t:
+  return t
+ off = 0
+ for since, m in TZ:
+  if t >= since:
+   off = m
+ if not off:
+  return t
+ return (_D.strptime(t[:19], '%Y-%m-%d %H:%M:%S') + _T(minutes=off)).strftime('%Y-%m-%d %H:%M:%S')
+rows_utc = rows
+_first = TZ[1][0] if len(TZ) > 1 else '9999'
+rows = [r if (r[2] or '') < _first and (r[3] or '') < _first else [r[0], r[1], _shift(r[2]), _shift(r[3]), r[4]] for r in rows]
+workouts = [dict(w, start=_shift(w['start']), end=_shift(w['end'])) for w in workouts]
+LOCAL_NOW = TZ[-1][1]
 P = lambda s: datetime.strptime(s, '%Y-%m-%d %H:%M:%S')
 DOB = date(1994, 2, 10)
 HEIGHT = 1.64
@@ -476,18 +495,13 @@ for d in reversed(days):
  else:
   break
 
-def lastof(pred):
- v = [r[3] or r[2] for r in rows if pred(r)]
+def lastof(pred):  # sync times stay in UTC (the app shows them as "x min ago")
+ v = [r[3] or r[2] for r in rows_utc if pred(r)]
  return max(v)[:16] if v else None
 # ---- Personal patterns: what moved YOUR recovery, from your own history (needs >= 5 days on each side) ----
 # local clock offset (minutes) from a UTC date onward; extend when moving time zone
-LOCAL = [('2000-01-01', 60), ('2026-10-24', 480)]
-def _loc(dd):
- off = 0
- for since, m in LOCAL:
-  if dd >= since:
-   off = m
- return off
+def _loc(dd):  # times in out_days are already local
+ return 0
 def _hm(x):
  return int(x[:2]) * 60 + int(x[3:5])
 def _feat(d, i):
@@ -564,7 +578,7 @@ def _plan():
 plan = _plan()
 sync = dict(watch_hr=lastof(lambda r: r[0] == 'HeartRate' and isW(r[1])), hr_any=lastof(lambda r: r[0] == 'HeartRate'), gband=lastof(lambda r: isG(r[1])), sleep=lastof(lambda r: r[0] == 'SleepAnalysis'), steps=lastof(lambda r: r[0] == 'StepCount'), workout=max((w['start'] for w in workouts), default=None), log=raw.get('meta', {}).get('log', []))
 import datetime as _dt
-data = dict(built=_dt.datetime.utcnow().strftime('%Y-%m-%d %H:%M'), sync=sync, today=TODAY, chrono=round(CHRONO, 1), hrmax=round(hrmax), days=out_days, order=days, healthspan=dict(age=age_now, prev=age_prev, pace=pace, metrics=metrics_now, hist=hs_hist), vo2=vo2[-30:], vo2run=vo2run[-30:], streak=streak, patterns=patterns, local=_loc(TODAY), plan=plan, gband=dict(spo2=g_spo2, sys=g_sys, dia=g_dia, temp=g_temp, glu=g_glu, hr=g_hr))
+data = dict(built=_dt.datetime.utcnow().strftime('%Y-%m-%d %H:%M'), sync=sync, today=TODAY, chrono=round(CHRONO, 1), hrmax=round(hrmax), days=out_days, order=days, healthspan=dict(age=age_now, prev=age_prev, pace=pace, metrics=metrics_now, hist=hs_hist), vo2=vo2[-30:], vo2run=vo2run[-30:], streak=streak, patterns=patterns, local=LOCAL_NOW, plan=plan, gband=dict(spo2=g_spo2, sys=g_sys, dia=g_dia, temp=g_temp, glu=g_glu, hr=g_hr))
 json.dump(data, open(OUT, 'w'), separators=(',', ':'))
 t = out_days[TODAY]
 y = out_days[days[-2]]
