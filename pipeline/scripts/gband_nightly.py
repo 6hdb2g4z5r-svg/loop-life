@@ -11,7 +11,7 @@ and computes, for each night, over the G-Band sleep window:
   sleep    asleep / deep / light minutes, start and end (UTC)
 and, for each calendar day, the band's step count and distance (steps, dist km).
 
-Usage:  python3 -I gband_nightly.py HEADERS_JSON OUT_JSON [DAYS]
+Usage:  python3 -I gband_nightly.py HEADERS_JSON OUT_JSON [DAYS] [SERIES_JSON]
 HEADERS_JSON holds {"Authorization": "token ...", "User-Agent": ..., ...}.
 Exit code 3 = token rejected (needs refresh), 2 = other fetch error.
 """
@@ -73,14 +73,36 @@ def first(lst):
     return lst[0] if lst and lst[0] not in BAD else None
 
 
-def nightly(data):
-    blocks = []  # (utc datetime, block)
+def blocks_utc(data):
+    out = []
     for day in data:
         base = dt.datetime.fromisoformat(day['date'])
         for b in day.get('origDatas') or []:
             loc = base + dt.timedelta(minutes=b['time'])
-            blocks.append((loc - dt.timedelta(minutes=clock_at(loc)), b))
-    blocks.sort(key=lambda t: t[0])
+            out.append((loc - dt.timedelta(minutes=clock_at(loc)), b))
+    return sorted(out, key=lambda t: t[0])
+
+
+def series(data):
+    """{utc_date: {'hr': [1440 bpm or 0], 'cal': [288 kcal], 'dist': [288 km]}}"""
+    out = {}
+    for t, b in blocks_utc(data):
+        d = out.setdefault(t.date().isoformat(), {'hr': [0] * 1440, 'cal': [0] * 288, 'dist': [0] * 288})
+        m = t.hour * 60 + t.minute
+        vals = b.get('ppgs') or []
+        multi = sum(1 for x in vals[1:] if x not in BAD) > 0
+        for i, x in enumerate(vals if multi else vals[:1]):
+            if x not in BAD and 30 <= x <= 220 and m + i < 1440:
+                d['hr'][m + i] = int(x)
+        if b.get('cal'):
+            d['cal'][m // 5] = round(float(b['cal']), 2)
+        if b.get('dis'):
+            d['dist'][m // 5] = round(float(b['dis']), 3)
+    return out
+
+
+def nightly(data):
+    blocks = blocks_utc(data)
     sleeps = {}
     for day in data:
         lab = day.get('timezone') or 0
@@ -105,6 +127,7 @@ def nightly(data):
         out[key] = {
             'start': t0.strftime('%Y-%m-%d %H:%M'), 'end': t1.strftime('%Y-%m-%d %H:%M'),
             'asleep': s.get('sleepDuration'), 'deep': s.get('deepDuration'), 'light': s.get('lightDuration'),
+            'line': s.get('sleepLine') or '', 'step': s.get('onePointDuration') or 60, 'sci': s.get('accurateType') == 1,
             'hrv': round(st.median(hv), 1) if len(hv) >= 8 else None,
             'hrv_app': round(st.mean(ha), 1) if ha else None,
             'hrv_n': len(hv),
@@ -123,7 +146,23 @@ def nightly(data):
 if __name__ == '__main__':
     headers = json.load(open(sys.argv[1]))
     days = int(sys.argv[3]) if len(sys.argv) > 3 else 2
-    res = nightly(fetch(headers, days))
+    data = fetch(headers, days)
+    res = nightly(data)
+    if len(sys.argv) > 4:  # heart rate / calories / distance series, kept 130 days
+        try:
+            ser = json.load(open(sys.argv[4]))
+            assert isinstance(ser, dict) and 'ok' not in ser
+        except Exception:
+            ser = {}
+        new = series(data)
+        for k, v in new.items():
+            old = ser.get(k)
+            if old:  # keep what an earlier read had where this read has nothing
+                for f in ('hr', 'cal', 'dist'):
+                    v[f] = [a if a else b for a, b in zip(v[f], old.get(f) or [0] * len(v[f]))]
+            ser[k] = v
+        keep = sorted(ser)[-130:]
+        json.dump({k: ser[k] for k in keep}, open(sys.argv[4], 'w'), separators=(',', ':'))
     prev = {}
     try:
         prev = json.load(open(sys.argv[2]))

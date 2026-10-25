@@ -9,6 +9,42 @@ try:
  GB = json.load(open(_os.path.join(_os.path.dirname(_os.path.abspath(sys.argv[1])), 'gband.json')))
 except Exception:
  GB = {}
+# G Band cloud series (per-minute heart rate, 5-min calories / distance) and its sleep stages, injected as 'G Band' rows:
+# the Watch stays preferred minute by minute where it was worn (workouts), the band fills everything else.
+try:
+ GS = json.load(open(_os.path.join(_os.path.dirname(_os.path.abspath(sys.argv[1])), 'gband_series.json')))
+except Exception:
+ GS = {}
+from datetime import datetime as _D, timedelta as _T
+_add = []
+for _d, _s in GS.items():
+ for _m, _v in enumerate(_s.get('hr') or []):
+  if _v:
+   _t = f'{_d} {_m // 60:02d}:{_m % 60:02d}:00'
+   _add.append(['HeartRate', 'G Band', _t, _t, str(_v)])
+ for _f, _type in (('cal', 'ActiveEnergyBurned'), ('dist', 'DistanceWalkingRunning')):
+  for _i, _v in enumerate(_s.get(_f) or []):
+   if _v:
+    _t = f'{_d} {_i * 5 // 60:02d}:{_i * 5 % 60:02d}:00'
+    _add.append([_type, 'G Band', _t, _t, str(_v)])
+_STAGE = {'0': 'AsleepDeep', '1': 'AsleepCore', '2': 'AsleepREM', '3': 'Awake', '4': 'Awake'}
+_gb_nights = [(_k, _g) for _k, _g in GB.items() if _g.get('start') and _g.get('line')]
+if _gb_nights:  # the band's own nights replace the sparse G Band sleep copied through Apple Health
+ rows = [r for r in rows if not (r[0] == 'SleepAnalysis' and 'G Band' in r[1])]
+for _k, _g in _gb_nights:
+ _t0 = _D.strptime(_g['start'], '%Y-%m-%d %H:%M')
+ _step = _T(seconds=_g.get('step') or 60)
+ _i = 0
+ _ln = _g['line']
+ while _i < len(_ln):
+  _j = _i
+  while _j < len(_ln) and _ln[_j] == _ln[_i]:
+   _j += 1
+  _st = _STAGE.get(_ln[_i])
+  if _st:
+   _add.append(['SleepAnalysis', 'G Band', (_t0 + _step * _i).strftime('%Y-%m-%d %H:%M:%S'), (_t0 + _step * _j).strftime('%Y-%m-%d %H:%M:%S'), 'HKCategoryValueSleepAnalysis' + _st])
+  _i = _j
+rows = rows + _add
 workouts = raw['workouts']
 P = lambda s: datetime.strptime(s, '%Y-%m-%d %H:%M:%S')
 DOB = date(1994, 2, 10)
@@ -104,6 +140,8 @@ for d in days:
  if SLEEP_MODE == 'gband_only':
   if 'gband' not in cands:
    continue
+  pick = 'gband'
+ elif 'gband' in cands and _gb_nights:
   pick = 'gband'
  elif 'watch' in cands and cands['watch'][1] >= 0.75 * longest:
   pick = 'watch'
@@ -215,6 +253,7 @@ vo2run = []
 out_days = {}
 rhr_hist, hrv_hist, resp_hist, asleep_hist = ([], [], [], [])
 gb_hist = []
+gbr_hist, gbp_hist = ([], [])
 prev_strain = None
 for i, d in enumerate(days):
  D = datetime.strptime(d, '%Y-%m-%d')
@@ -235,8 +274,13 @@ for i, d in enumerate(days):
  hsrc = 'watch' if hrv is not None else None
  if g.get('hrv'):
   hrv, hsrc = g['hrv'], 'gband'
- if rr is None and g.get('resp'):
-  rr = g['resp']
+ # band nights: resting heart rate and respiratory rate from the band too, each against its own baseline
+ rsrc = 'other'
+ if g.get('rhr') and sleep_src.get(d) == 'gband':
+  rhr, rsrc = g['rhr'], 'gband'
+ psrc = 'other'
+ if g.get('resp'):
+  rr, psrc = g['resp'], 'gband'
 
  def base(h):
   h = [x for x in h[-30:] if x is not None]
@@ -245,9 +289,9 @@ for i, d in enumerate(days):
   m = mean(h)
   sd = st.pstdev(h) or 1
   return (m, sd)
- bR, sR = base(rhr_hist)
+ bR, sR = base(gbr_hist if rsrc == 'gband' else rhr_hist)
  bH, sH = base(gb_hist if hsrc == 'gband' else hrv_hist)
- bP, sP = base(resp_hist)
+ bP, sP = base(gbp_hist if psrc == 'gband' else resp_hist)
  recent = [x for x in asleep_hist[-3:] if x is not None]
  debt = sum((max(0, 460 - x) for x in recent)) / max(1, len(recent)) * 0.5 if recent else 0
  need = 460 + debt + (prev_strain or 0) * 2.5
@@ -271,7 +315,10 @@ for i, d in enumerate(days):
    cons = 75
   base_sleep_hr = bR or (rhr or 60)
   stress_frac = sum((1 for v in night if v > base_sleep_hr * 1.2)) / len(night) * 100 if night else 0
-  spf = round(clip(0.55 * hvn + 0.2 * cons + 0.2 * eff + 0.05 * (100 - stress_frac), 0, 100))
+  if sleep_src.get(d) == 'gband':  # the band barely detects awakenings: efficiency is left out of its score
+   spf = round(clip((0.55 * hvn + 0.2 * cons + 0.05 * (100 - stress_frac)) / 0.8, 0, 100))
+  else:
+   spf = round(clip(0.55 * hvn + 0.2 * cons + 0.2 * eff + 0.05 * (100 - stress_frac), 0, 100))
   sd_ = dict(hvn=round(hvn), cons=round(cons), eff=round(eff), stress=round(stress_frac), restor=round((sl['deep'] + sl['rem']) / sl['asleep'] * 100))
  rec = None
  if hrv is not None or rhr is not None:
@@ -331,10 +378,12 @@ for i, d in enumerate(days):
   out_days[d]['sl'] = dict(start=sl['start'].strftime('%H:%M'), end=sl['end'].strftime('%H:%M'), asleep=round(sl['asleep']), inbed=round(sl['inbed']), light=round(sl['light']), deep=round(sl['deep']), rem=round(sl['rem']), awake=round(sl['awake']), hyp=sl['hyp'], src=sleep_src.get(d, '').replace('other:', ''))
  if i >= NDAYS - 35:
   out_days[d]['hr5'] = [round(mean(hr5[k])) if hr5.get(k) else None for k in range(288)]
- rhr_hist.append(rhr)
+ rhr_hist.append(rhr if rsrc != 'gband' else None)
+ gbr_hist.append(rhr if rsrc == 'gband' else None)
  hrv_hist.append(hrv if hsrc == 'watch' else None)
  gb_hist.append(hrv if hsrc == 'gband' else None)
- resp_hist.append(rr)
+ resp_hist.append(rr if psrc != 'gband' else None)
+ gbp_hist.append(rr if psrc == 'gband' else None)
  asleep_hist.append(sl['asleep'] if sl else None)
  prev_strain = strain
 STRENGTH = {'TraditionalStrengthTraining', 'FunctionalStrengthTraining', 'HighIntensityIntervalTraining', 'CrossTraining'}
