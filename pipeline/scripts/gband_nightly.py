@@ -15,7 +15,7 @@ Usage:  python3 -I gband_nightly.py HEADERS_JSON OUT_JSON [DAYS] [SERIES_JSON]
 HEADERS_JSON holds {"Authorization": "token ...", "User-Agent": ..., ...}.
 Exit code 3 = token rejected (needs refresh), 2 = other fetch error.
 """
-import sys, json, math, statistics as st, subprocess, datetime as dt
+import sys, os, json, math, statistics as st, subprocess, datetime as dt
 
 API = 'https://cn.vpgband.com/api/v1/healthData/getDataListWithLimitLength?day={}'
 BAD = (0, 255)
@@ -34,7 +34,7 @@ def clock_at(local_naive):
 
 
 def fetch(headers, days):
-    cmd = ['curl', '-sS', '-m', '300', '-w', '\n%{http_code}']
+    cmd = ['curl', '-sS', '--compressed', '-m', os.environ.get('GBAND_TIMEOUT', '300'), '-w', '\n%{http_code}']
     for k, v in headers.items():
         cmd += ['-H', f'{k}: {v}']
     cmd.append(API.format(days))
@@ -71,6 +71,27 @@ def masd(v):
 
 def first(lst):
     return lst[0] if lst and lst[0] not in BAD else None
+
+
+def stages(line, step):
+    """Minutes per stage from the band's sleep line (0 deep, 1 light, 2 REM, 3/4 awake), one char per `step` s."""
+    k = (step or 60) / 60
+    c = {ch: line.count(ch) * k for ch in '01234'}
+    return round(c['0']), round(c['1']), round(c['2']), round(c['3'] + c['4'])
+
+
+def dips(ox, hours):
+    """Oxygen desaturation events: runs of readings >= 3 points below the night's median; per hour asleep."""
+    if len(ox) < 12 or not hours:
+        return None, None
+    med = st.median(ox)
+    ev, run = 0, False
+    for x in ox:
+        low = x <= med - 3
+        if low and not run:
+            ev += 1
+        run = low
+    return round(ev / hours, 1), sum(1 for x in ox if x < 90)
 
 
 def blocks_utc(data):
@@ -123,6 +144,10 @@ def nightly(data):
         tp = [b['temperature']['body'] for b in inn if (b.get('temperature') or {}).get('body')]
         oxa = [x for b in inn for x in (b.get('oxygens') or []) if x not in BAD]
         mv = [x for b in inn for x in (b.get('sleepActivitys') or []) if x != 255]  # movement per minute while asleep
+        line, step = s.get('sleepLine') or '', s.get('onePointDuration') or 60
+        sci = s.get('accurateType') == 1
+        dp, lt, rem, aw = stages(line, step) if line else (None, None, None, None)
+        odi, ox90 = dips(oxa, (s.get('sleepDuration') or 0) / 60)
         if (s.get('sleepDuration') or 0) < 45:
             continue  # band taken off and left still (shower, charging): not a sleep
         key = (t0 + dt.timedelta(hours=6)).date().isoformat()  # same rule as the dashboard: sleep starting 18:00 UTC onward counts for the next day
@@ -131,7 +156,9 @@ def nightly(data):
         out[key] = {
             'start': t0.strftime('%Y-%m-%d %H:%M'), 'end': t1.strftime('%Y-%m-%d %H:%M'),
             'asleep': s.get('sleepDuration'), 'deep': s.get('deepDuration'), 'light': s.get('lightDuration'),
-            'line': s.get('sleepLine') or '', 'step': s.get('onePointDuration') or 60, 'sci': s.get('accurateType') == 1,
+            'line': line, 'step': step, 'sci': sci,
+            'rem': rem if sci else None, 'awake': aw, 'deep_line': dp,
+            'odi': odi, 'ox90': ox90, 'ox_n': len(oxa),
             'hrv': round(st.median(hv), 1) if len(hv) >= 8 else None,
             'hrv_app': round(st.mean(ha), 1) if ha else None,
             'hrv_n': len(hv),
@@ -153,6 +180,8 @@ if __name__ == '__main__':
     headers = json.load(open(sys.argv[1]))
     days = int(sys.argv[3]) if len(sys.argv) > 3 else 2
     data = fetch(headers, days)
+    if os.environ.get('GBAND_RAW'):  # keep the raw read for offline checks
+        json.dump(data, open(os.environ['GBAND_RAW'], 'w'))
     res = nightly(data)
     if len(sys.argv) > 4:  # heart rate / calories / distance series, kept 130 days
         try:

@@ -401,6 +401,14 @@ for i, d in enumerate(days):
    vo2run.append((d, x['vo2e']))
  if sl:
   out_days[d]['sl'] = dict(start=sl['start'].strftime('%H:%M'), end=sl['end'].strftime('%H:%M'), asleep=round(sl['asleep']), inbed=round(sl['inbed']), light=round(sl['light']), deep=round(sl['deep']), rem=round(sl['rem']), awake=round(sl['awake']), hyp=sl['hyp'], src=sleep_src.get(d, '').replace('other:', ''))
+ if out_days[d].get('sl') and out_days[d]['sl'].get('src') == 'gband' and g.get('start'):
+  # how far to trust tonight's numbers: scientific sleep = per-minute stages incl. REM and tighter HRV
+  out_days[d]['sl']['sci'] = bool(g.get('sci'))
+  if g.get('spo2') is not None:
+   out_days[d]['sl']['ox'] = dict(avg=g['spo2'], min=g.get('spo2_min'), odi=g.get('odi'), lo=g.get('ox90'), n=g.get('ox_n'))
+ out_days[d]['conf'] = dict(
+  stages='measured' if (out_days[d].get('sl') or {}).get('src') != 'gband' else ('good' if g.get('sci') else 'estimate'),
+  hrv=None if hrv is None else ('±2 ms' if hsrc == 'gband' and g.get('sci') else '±5 ms' if hsrc == 'gband' else 'watch'))
  if g.get('moves') is not None and out_days[d].get('sl'):
   out_days[d]['sl']['moves'] = g['moves']
   mvb = [x for x in gbm_hist[-30:] if x is not None]
@@ -471,9 +479,69 @@ for d in reversed(days):
 def lastof(pred):
  v = [r[3] or r[2] for r in rows if pred(r)]
  return max(v)[:16] if v else None
+# ---- Personal patterns: what moved YOUR recovery, from your own history (needs >= 5 days on each side) ----
+# local clock offset (minutes) from a UTC date onward; extend when moving time zone
+LOCAL = [('2000-01-01', 60), ('2026-10-24', 480)]
+def _loc(dd):
+ off = 0
+ for since, m in LOCAL:
+  if dd >= since:
+   off = m
+ return off
+def _hm(x):
+ return int(x[:2]) * 60 + int(x[3:5])
+def _feat(d, i):
+ t = out_days.get(d) or {}
+ sl = t.get('sl') or {}
+ pd = days[i - 1] if i else None
+ p = out_days.get(pd) or {}
+ f = {}
+ if sl.get('asleep'):
+  f['short'] = sl['asleep'] < 390 if sl['asleep'] < 390 or sl['asleep'] >= 450 else None
+  bt = (_hm(sl['start']) + _loc(d)) % 1440
+  bt = bt + 1440 if bt < 720 else bt  # minutes after previous midnight, 24:00 = 1440
+  f['_bt'] = bt
+ if p.get('strain') is not None:
+  f['hard'] = p['strain'] >= 14 if p['strain'] >= 14 or p['strain'] < 10 else None
+ if p:
+  ends = [(_hm(w['end']) + _loc(pd)) % 1440 for w in p.get('workouts') or []]
+  f['late'] = any(e >= 20 * 60 or e < 3 * 60 for e in ends) if ends else False
+ if p.get('steps') is not None:
+  f['active'] = p['steps'] >= 10000 if p['steps'] >= 10000 or p['steps'] < 6000 else None
+ return f
+_rows = []
+for i, d in enumerate(days):
+ t = out_days.get(d) or {}
+ if t.get('rec') is None:
+  continue
+ _rows.append((d, t['rec'], t.get('hrv'), _feat(d, i)))
+_rows = _rows[-90:]
+_bts = sorted(r[3]['_bt'] for r in _rows if '_bt' in r[3])
+if _bts:
+ _mbt = _bts[len(_bts) // 2]
+ for r in _rows:
+  if '_bt' in r[3]:
+   r[3]['late_bed'] = True if r[3]['_bt'] >= _mbt + 45 else False if r[3]['_bt'] <= _mbt + 10 else None
+PAT_TXT = {
+ 'short': ('Sleeping under 6.5 h', 'Dormir moins de 6 h 30', 'vs 7.5 h or more', 'vs 7 h 30 ou plus'),
+ 'late_bed': ('Going to bed 45+ min later than usual', 'Se coucher 45 min+ plus tard que d’habitude', 'vs your usual time', 'vs votre heure habituelle'),
+ 'hard': ('A hard day the day before (strain 14+)', 'Une grosse journée la veille (effort 14+)', 'vs strain under 10', 'vs effort sous 10'),
+# evening training is already measured by the app Journal ("Evening workout", auto from workouts)
+ 'active': ('10,000+ steps the day before', '10 000+ pas la veille', 'vs under 6,000', 'vs moins de 6 000'),
+}
+patterns = []
+for k, (en, fr, en2, fr2) in PAT_TXT.items():
+ yes = [r for r in _rows if r[3].get(k) is True]
+ no = [r for r in _rows if r[3].get(k) is False]
+ if len(yes) < 5 or len(no) < 5:
+  continue
+ dr = mean([r[1] for r in yes]) - mean([r[1] for r in no])
+ # recovery only: raw HRV mixes Watch SDNN and band RMSSD eras, recovery is already scored against each source's own baseline
+ patterns.append(dict(k=k, en=en, fr=fr, en2=en2, fr2=fr2, rec=round(dr), eff='clear' if abs(dr) >= 5 else 'mild' if abs(dr) >= 3 else 'none', n=len(yes), m=len(no)))
+patterns.sort(key=lambda x: -abs(x['rec']))
 sync = dict(watch_hr=lastof(lambda r: r[0] == 'HeartRate' and isW(r[1])), hr_any=lastof(lambda r: r[0] == 'HeartRate'), gband=lastof(lambda r: isG(r[1])), sleep=lastof(lambda r: r[0] == 'SleepAnalysis'), steps=lastof(lambda r: r[0] == 'StepCount'), workout=max((w['start'] for w in workouts), default=None), log=raw.get('meta', {}).get('log', []))
 import datetime as _dt
-data = dict(built=_dt.datetime.utcnow().strftime('%Y-%m-%d %H:%M'), sync=sync, today=TODAY, chrono=round(CHRONO, 1), hrmax=round(hrmax), days=out_days, order=days, healthspan=dict(age=age_now, prev=age_prev, pace=pace, metrics=metrics_now, hist=hs_hist), vo2=vo2[-30:], vo2run=vo2run[-30:], streak=streak, gband=dict(spo2=g_spo2, sys=g_sys, dia=g_dia, temp=g_temp, glu=g_glu, hr=g_hr))
+data = dict(built=_dt.datetime.utcnow().strftime('%Y-%m-%d %H:%M'), sync=sync, today=TODAY, chrono=round(CHRONO, 1), hrmax=round(hrmax), days=out_days, order=days, healthspan=dict(age=age_now, prev=age_prev, pace=pace, metrics=metrics_now, hist=hs_hist), vo2=vo2[-30:], vo2run=vo2run[-30:], streak=streak, patterns=patterns, local=_loc(TODAY), gband=dict(spo2=g_spo2, sys=g_sys, dia=g_dia, temp=g_temp, glu=g_glu, hr=g_hr))
 json.dump(data, open(OUT, 'w'), separators=(',', ':'))
 t = out_days[TODAY]
 y = out_days[days[-2]]
