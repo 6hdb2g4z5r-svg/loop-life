@@ -19,6 +19,18 @@ import sys, json, math, statistics as st, subprocess, datetime as dt
 
 API = 'https://cn.vpgband.com/api/v1/healthData/getDataListWithLimitLength?day={}'
 BAD = (0, 255)
+# The server labels each day with the phone's current UTC offset in MINUTES ("timezone": 480 = UTC+8), even for data
+# the band recorded earlier on its old clock. CLOCK lists the band clock's offset (minutes) from a UTC instant onward;
+# block times and the server's sleep epochs are converted with it. Extend it when travelling (band clock follows the phone).
+CLOCK = [('2000-01-01 00:00', 0), ('2026-10-25 04:00', 480)]
+
+
+def clock_at(local_naive):
+    off = 0
+    for since, m in CLOCK:
+        if local_naive - dt.timedelta(minutes=m) >= dt.datetime.fromisoformat(since):
+            off = m
+    return off
 
 
 def fetch(headers, days):
@@ -64,18 +76,22 @@ def first(lst):
 def nightly(data):
     blocks = []  # (utc datetime, block)
     for day in data:
-        base = dt.datetime.fromisoformat(day['date']) - dt.timedelta(hours=day.get('timezone') or 0)
+        base = dt.datetime.fromisoformat(day['date'])
         for b in day.get('origDatas') or []:
-            blocks.append((base + dt.timedelta(minutes=b['time']), b))
+            loc = base + dt.timedelta(minutes=b['time'])
+            blocks.append((loc - dt.timedelta(minutes=clock_at(loc)), b))
     blocks.sort(key=lambda t: t[0])
     sleeps = {}
     for day in data:
+        lab = day.get('timezone') or 0
         for s in day.get('sleeps') or []:
-            sleeps[s['sleepTime']] = s
+            # epoch was built from the band's local clock minus the label offset: undo it, apply the real band clock
+            t0 = dt.datetime.utcfromtimestamp(s['sleepTime'] + lab * 60)
+            t0 -= dt.timedelta(minutes=clock_at(t0))
+            t1 = t0 + dt.timedelta(seconds=s['wakeTime'] - s['sleepTime'])
+            sleeps[t0] = (t0, t1, s)
     out = {}
-    for s in sleeps.values():
-        t0 = dt.datetime.utcfromtimestamp(s['sleepTime'])
-        t1 = dt.datetime.utcfromtimestamp(s['wakeTime'])
+    for t0, t1, s in sorted(sleeps.values(), key=lambda x: x[2].get('sleepDuration') or 0):
         inn = [b for t, b in blocks if t0 <= t < t1]
         hv = [v for v in (rmssd(rr(b)) for b in inn) if v is not None]
         ha = [v for v in (masd(rr(b)) for b in inn) if v is not None]
@@ -83,7 +99,9 @@ def nightly(data):
         rs = [x for x in (first(b.get('resRates')) for b in inn) if x]
         ox = [x for x in (first(b.get('oxygens')) for b in inn) if x]
         tp = [b['temperature']['body'] for b in inn if (b.get('temperature') or {}).get('body')]
-        key = t1.date().isoformat()  # a night belongs to the day you wake up
+        key = (t0 + dt.timedelta(hours=6)).date().isoformat()  # same rule as the dashboard: sleep starting 18:00 UTC onward counts for the next day
+        if key in out and (out[key].get('asleep') or 0) >= (s.get('sleepDuration') or 0):
+            continue  # keep the main sleep of the night, not a nap
         out[key] = {
             'start': t0.strftime('%Y-%m-%d %H:%M'), 'end': t1.strftime('%Y-%m-%d %H:%M'),
             'asleep': s.get('sleepDuration'), 'deep': s.get('deepDuration'), 'light': s.get('lightDuration'),
@@ -112,7 +130,11 @@ if __name__ == '__main__':
     except Exception:
         pass
     for k, v in res.items():
-        prev.setdefault(k, {}).update(v)
+        p = prev.setdefault(k, {})
+        if 'start' in v:  # a fresh read of the night replaces the stored one entirely
+            for a in [a for a in p if a not in ('steps', 'dist')]:
+                del p[a]
+        p.update(v)
     json.dump(dict(sorted(prev.items())), open(sys.argv[2], 'w'), indent=1)
     for k, v in res.items():
         print(k, 'HRV', v.get('hrv'), 'ms (n', v.get('hrv_n'), ') RHR', v.get('rhr'), 'resp', v.get('resp'), 'steps', v.get('steps'))

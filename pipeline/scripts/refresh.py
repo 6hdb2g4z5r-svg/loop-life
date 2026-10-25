@@ -53,6 +53,11 @@ for f in files:
  meta['log'] = log[-30:]
  state['meta'] = meta
  print(f['name'], len(rows), 'rows', len(wks), 'workouts')
+_lim = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(time.time() + 900))
+_n = len(state['rows'])
+state['rows'] = [r for r in state['rows'] if r[2] <= _lim]
+if len(state['rows']) != _n:
+ print('dropped future rows:', _n - len(state['rows']))
 json.dump(state, open(os.path.join(W, 'raw.json'), 'w'))
 subprocess.run([sys.executable, '-I', os.path.join(W, 'scripts', 'compute.py'), os.path.join(W, 'raw.json'), os.path.join(W, 'dash.json')], check=True)
 t = open(os.path.join(W, 'template.html')).read()

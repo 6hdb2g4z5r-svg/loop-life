@@ -4,7 +4,21 @@ GBAND_TYPES = {'OxygenSaturation', 'BodyTemperature', 'BloodGlucose', 'BloodPres
 SLEEP_VAL = {'core': 'AsleepCore', 'deep': 'AsleepDeep', 'rem': 'AsleepREM', 'awake': 'Awake', 'in bed': 'InBed', 'inbed': 'InBed', 'asleep': 'AsleepUnspecified', 'unspecified': 'AsleepUnspecified'}
 
 def ts(s):
- return str(s).replace('T', ' ')[:19] if s else None
+ # 'YYYY-MM-DD HH:MM:SS +0800' -> UTC 'YYYY-MM-DD HH:MM:SS' (all stored data is UTC)
+ if not s:
+  return None
+ s = str(s).replace('T', ' ')
+ m = re.match(r'(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)(?:\.\d+)?\s*(Z|[+-]\d\d:?\d\d)?', s)
+ if not m:
+  return s[:19]
+ base, off = m.group(1), m.group(2)
+ if not off or off == 'Z':
+  return base
+ from datetime import datetime, timedelta
+ sign = -1 if off[0] == '-' else 1
+ o = off[1:].replace(':', '')
+ mins = sign * (int(o[:2]) * 60 + int(o[2:4]))
+ return (datetime.strptime(base, '%Y-%m-%d %H:%M:%S') - timedelta(minutes=mins)).strftime('%Y-%m-%d %H:%M:%S')
 
 def src(s, t=None):
  s = s or ''

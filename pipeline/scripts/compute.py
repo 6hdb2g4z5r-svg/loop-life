@@ -228,8 +228,6 @@ for i, d in enumerate(days):
  else:
   night = []
  hv = [v for t, v in hrv_all if sl and sl['start'] <= t <= sl['end']]
- if not hv:
-  hv = [v for t, v in hrv_all if D - timedelta(hours=12) <= t <= D + timedelta(hours=12)]
  hrv = mean(hv)
  rr = [v for t, v in resp if sl and sl['start'] <= t <= sl['end']]
  rr = mean(rr) if rr else mean([v for t, v in resp if D - timedelta(hours=12) <= t <= D + timedelta(hours=12)])
