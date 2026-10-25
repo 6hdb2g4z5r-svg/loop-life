@@ -539,9 +539,32 @@ for k, (en, fr, en2, fr2) in PAT_TXT.items():
  # recovery only: raw HRV mixes Watch SDNN and band RMSSD eras, recovery is already scored against each source's own baseline
  patterns.append(dict(k=k, en=en, fr=fr, en2=en2, fr2=fr2, rec=round(dr), eff='clear' if abs(dr) >= 5 else 'mild' if abs(dr) >= 3 else 'none', n=len(yes), m=len(no)))
 patterns.sort(key=lambda x: -abs(x['rec']))
+# ---- Today's plan, in local clock time (each past night read in the time zone it was slept in) ----
+def _plan():
+ t = out_days.get(TODAY) or {}
+ wk = []
+ for k in days[-8:-1]:
+  sl = (out_days.get(k) or {}).get('sl')
+  if sl and sl.get('asleep', 0) >= 300:
+   wk.append((_hm(sl['end']) + _loc(k)) % 1440)
+ if not wk or not t.get('need'):
+  return None
+ wk.sort()
+ wake = wk[len(wk) // 2]
+ bed = (wake - t['need'] - 15) % 1440
+ f = lambda x: '%02d:%02d' % (x % 1440 // 60, x % 60)
+ r = t.get('rec')
+ lo, hi = (8, 12) if r is None else (max(0, 6 + r / 99 * 11 - 1.5), min(21, 6 + r / 99 * 11 + 1.5))
+ if r is not None and r < 34:  # red: active recovery only, same band as the app's day banner
+  lo, hi = 3, 8
+ il = (t.get('ill') or {}).get('level', 0)
+ if il >= 1:
+  hi = min(hi, 10 if il == 1 else 7); lo = min(lo, hi - 3)
+ return dict(wake=f(wake), bed=f(bed), caffeine=f(bed - 480), meal=f(bed - 180), strain=[round(max(0, lo), 1), round(hi, 1)], ill=il)
+plan = _plan()
 sync = dict(watch_hr=lastof(lambda r: r[0] == 'HeartRate' and isW(r[1])), hr_any=lastof(lambda r: r[0] == 'HeartRate'), gband=lastof(lambda r: isG(r[1])), sleep=lastof(lambda r: r[0] == 'SleepAnalysis'), steps=lastof(lambda r: r[0] == 'StepCount'), workout=max((w['start'] for w in workouts), default=None), log=raw.get('meta', {}).get('log', []))
 import datetime as _dt
-data = dict(built=_dt.datetime.utcnow().strftime('%Y-%m-%d %H:%M'), sync=sync, today=TODAY, chrono=round(CHRONO, 1), hrmax=round(hrmax), days=out_days, order=days, healthspan=dict(age=age_now, prev=age_prev, pace=pace, metrics=metrics_now, hist=hs_hist), vo2=vo2[-30:], vo2run=vo2run[-30:], streak=streak, patterns=patterns, local=_loc(TODAY), gband=dict(spo2=g_spo2, sys=g_sys, dia=g_dia, temp=g_temp, glu=g_glu, hr=g_hr))
+data = dict(built=_dt.datetime.utcnow().strftime('%Y-%m-%d %H:%M'), sync=sync, today=TODAY, chrono=round(CHRONO, 1), hrmax=round(hrmax), days=out_days, order=days, healthspan=dict(age=age_now, prev=age_prev, pace=pace, metrics=metrics_now, hist=hs_hist), vo2=vo2[-30:], vo2run=vo2run[-30:], streak=streak, patterns=patterns, local=_loc(TODAY), plan=plan, gband=dict(spo2=g_spo2, sys=g_sys, dia=g_dia, temp=g_temp, glu=g_glu, hr=g_hr))
 json.dump(data, open(OUT, 'w'), separators=(',', ':'))
 t = out_days[TODAY]
 y = out_days[days[-2]]
