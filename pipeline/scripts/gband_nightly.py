@@ -92,6 +92,32 @@ def rmssd(v):
     return math.sqrt(sum(((v[i + 1] - v[i]) * 10) ** 2 for i in range(len(v) - 1)) / (len(v) - 1))
 
 
+def rmssd_clean(b):
+    """RMSSD of one 5-min block after artifact rejection: (ms, share of clean beat pairs) or (None, share).
+    Blocks with >= 2 minutes of movement are skipped (motion corrupts wrist PPG). Beats outside 300-2000 ms, or more
+    than 20% away from the median of their 11-beat neighbourhood (missed or extra beats), are dropped, and only
+    successive pairs of two clean beats count."""
+    mv = [x for x in (b.get('sleepActivitys') or []) if x != 255]
+    v = [x for x in b.get('hrvs') or [] if x not in BAD and 30 <= x <= 200]
+    if 2 <= len(v) < 20:  # without scientific sleep the band keeps only ~4 beats per block: lighter rules
+        if sum(mv) > 40:
+            return None, 0
+        pairs = [(x, y) for x, y in zip(v, v[1:]) if abs(y - x) <= 0.2 * (x + y) / 2]
+        if len(pairs) < 2:
+            return None, 0
+        return math.sqrt(sum(((y - x) * 10) ** 2 for x, y in pairs) / len(pairs)), len(pairs) / (len(v) - 1)
+    if sum(1 for x in mv if x > 0) >= 2:
+        return None, 0
+    if len(v) < 20:
+        return None, 0
+    ok = [abs(x - st.median(v[max(0, i - 5):i + 6])) <= 0.2 * st.median(v[max(0, i - 5):i + 6]) for i, x in enumerate(v)]
+    pairs = [(v[i], v[i + 1]) for i in range(len(v) - 1) if ok[i] and ok[i + 1]]
+    q = len(pairs) / max(1, len(b.get('hrvs') or []) - 1)
+    if len(pairs) < 25:
+        return None, q
+    return math.sqrt(sum(((y - x) * 10) ** 2 for x, y in pairs) / len(pairs)), q
+
+
 def masd(v):
     if len(v) < 3:
         return None
@@ -175,7 +201,8 @@ def nightly(data):
     out = {}
     for t0, t1, s in sorted(merge(sleeps.values()), key=lambda x: x[2].get('sleepDuration') or 0):
         inn = [b for t, b in blocks if t0 <= t < t1]
-        hv = [v for v in (rmssd(rr(b)) for b in inn) if v is not None]
+        hv0 = [v for v in (rmssd(rr(b)) for b in inn) if v is not None]  # unfiltered, kept for comparison
+        hv = [v for v, q in (rmssd_clean(b) for b in inn) if v is not None]
         ha = [v for v in (masd(rr(b)) for b in inn) if v is not None]
         hr = sorted(x for x in (first(b.get('ppgs')) for b in inn) if x)
         rs = [x for x in (first(b.get('resRates')) for b in inn) if x]
@@ -202,6 +229,8 @@ def nightly(data):
             'hrv': round(st.median(hv), 1) if len(hv) >= 8 else None,
             'hrv_app': round(st.mean(ha), 1) if ha else None,
             'hrv_n': len(hv),
+            'hrv_raw': round(st.median(hv0), 1) if len(hv0) >= 8 else None,
+            'hrv_q': round(100 * len(hv) / len(inn)) if inn else None,  # % of the night's 5-min blocks usable for HRV
             'rhr': hr[len(hr) // 10] if len(hr) >= 6 else None,
             'resp': round(st.mean(rs), 1) if rs else None,
             'spo2': round(st.mean(ox), 1) if ox else None,

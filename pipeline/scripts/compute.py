@@ -106,6 +106,18 @@ for s, sd, ed, v in by['HeartRate']:
   continue
  k = sd[:16]
  (hr if isW(s) else hro).setdefault(k, []).append(float(v))
+# Band vs Watch heart rate on the minutes both measured (last 30 days): an automatic calibration check. The band's
+# resting numbers are corrected only if a steady bias shows up at rest (>= 2 bpm over >= 300 minutes).
+_gm = {sd[:16]: float(v) for s, sd, ed, v in by['HeartRate'] if isG(s) and sd[:10] >= days[-30]}
+_pairs = [(sum(hr[k]) / len(hr[k]), v) for k, v in _gm.items() if k in hr]
+def _cal(pp):
+ if not pp:
+  return None
+ dd = [b - a for a, b in pp]
+ return dict(n=len(dd), bias=round(sum(dd) / len(dd), 1), mae=round(sum(abs(x) for x in dd) / len(dd), 1), w5=round(100 * sum(abs(x) <= 5 for x in dd) / len(dd)))
+calib = dict(all=_cal(_pairs), rest=_cal([p for p in _pairs if p[0] < 90]), hard=_cal([p for p in _pairs if p[0] >= 130]), days=len({k[:10] for k in _gm if k in hr}))
+RHR_FIX = -calib['rest']['bias'] if calib['rest'] and calib['rest']['n'] >= 300 and abs(calib['rest']['bias']) >= 2 else 0
+calib['fix'] = RHR_FIX
 oth = sorted(((k, sum(v) / len(v)) for k, v in hro.items() if k not in hr and 35 <= sum(v) / len(v) <= 210))
 for j, (k, v) in enumerate(oth):
  win = sorted((x[1] for x in oth[max(0, j - 2):j + 3]))
@@ -215,6 +227,12 @@ for d in days:
  start, end = (blk[0][0], max((x[1] for x in blk)))
  span = (end - start).total_seconds() / 60
  sleep[d] = dict(start=start, end=end, asleep=asleep, inbed=span, light=tot['light'], deep=tot['deep'], rem=tot['rem'], awake=max(0, span - asleep), hyp=[(x[0].strftime('%H:%M'), round((x[1] - x[0]).total_seconds() / 60, 1), x[2]) for x in blk])
+ if pick == 'gband':
+  # the band over-counts deep sleep against the Watch on the same nights (~1.7x with scientific sleep, ~3.7x without):
+  # report a corrected figure, the excess goes back to light sleep; the raw band value is kept as deepRaw
+  _f = 1 / 1.7 if (GB.get(d) or {}).get('sci') else 1 / 3.7
+  _x = sleep[d]['deep'] * (1 - _f)
+  sleep[d].update(deepRaw=sleep[d]['deep'], deep=sleep[d]['deep'] - _x, light=sleep[d]['light'] + _x)
 
 def daily_sum(t, pick='max'):
  per = collections.defaultdict(lambda: collections.defaultdict(float))
@@ -318,7 +336,7 @@ for i, d in enumerate(days):
  # band nights: resting heart rate and respiratory rate from the band too, each against its own baseline
  rsrc = 'other'
  if g.get('rhr') and sleep_src.get(d) == 'gband':
-  rhr, rsrc = g['rhr'], 'gband'
+  rhr, rsrc = g['rhr'] + RHR_FIX, 'gband'
  psrc = 'other'
  if g.get('resp'):
   rr, psrc = g['resp'], 'gband'
@@ -440,7 +458,7 @@ for i, d in enumerate(days):
   if x.get('vo2e'):
    vo2run.append((d, x['vo2e']))
  if sl:
-  out_days[d]['sl'] = dict(start=sl['start'].strftime('%H:%M'), end=sl['end'].strftime('%H:%M'), asleep=round(sl['asleep']), inbed=round(sl['inbed']), light=round(sl['light']), deep=round(sl['deep']), rem=round(sl['rem']), awake=round(sl['awake']), hyp=sl['hyp'], src=sleep_src.get(d, '').replace('other:', ''))
+  out_days[d]['sl'] = dict(start=sl['start'].strftime('%H:%M'), end=sl['end'].strftime('%H:%M'), asleep=round(sl['asleep']), inbed=round(sl['inbed']), light=round(sl['light']), deep=round(sl['deep']), rem=round(sl['rem']), awake=round(sl['awake']), hyp=sl['hyp'], src=sleep_src.get(d, '').replace('other:', ''), **({'deepRaw': round(sl['deepRaw'])} if 'deepRaw' in sl else {}))
  if out_days[d].get('sl') and out_days[d]['sl'].get('src') == 'gband' and g.get('start'):
   # how far to trust tonight's numbers: scientific sleep = per-minute stages incl. REM and tighter HRV
   out_days[d]['sl']['sci'] = bool(g.get('sci'))
@@ -448,7 +466,8 @@ for i, d in enumerate(days):
    out_days[d]['sl']['ox'] = dict(avg=g['spo2'], min=g.get('spo2_min'), odi=g.get('odi'), lo=g.get('ox90'), n=g.get('ox_n'))
  out_days[d]['conf'] = dict(
   stages='measured' if (out_days[d].get('sl') or {}).get('src') != 'gband' else ('good' if g.get('sci') else 'estimate'),
-  hrv=None if hrv is None else ('±2 ms' if hsrc == 'gband' and g.get('sci') else '±5 ms' if hsrc == 'gband' else 'watch'))
+  hrv=None if hrv is None else ('±2 ms' if hsrc == 'gband' and g.get('sci') else '±5 ms' if hsrc == 'gband' else 'watch'),
+  hrvq=g.get('hrv_q') if hsrc == 'gband' else None, hrvRaw=g.get('hrv_raw') if hsrc == 'gband' else None)
  if g.get('moves') is not None and out_days[d].get('sl'):
   out_days[d]['sl']['moves'] = g['moves']
   mvb = [x for x in gbm_hist[-30:] if x is not None]
@@ -599,7 +618,7 @@ def _plan():
 plan = _plan()
 sync = dict(watch_hr=lastof(lambda r: r[0] == 'HeartRate' and isW(r[1])), hr_any=lastof(lambda r: r[0] == 'HeartRate'), gband=lastof(lambda r: isG(r[1])), sleep=lastof(lambda r: r[0] == 'SleepAnalysis'), steps=lastof(lambda r: r[0] == 'StepCount'), workout=max((w['start'] for w in workouts), default=None), log=raw.get('meta', {}).get('log', []))
 import datetime as _dt
-data = dict(built=_dt.datetime.utcnow().strftime('%Y-%m-%d %H:%M'), sync=sync, today=TODAY, chrono=round(CHRONO, 1), hrmax=round(hrmax), days=out_days, order=days, healthspan=dict(age=age_now, prev=age_prev, pace=pace, metrics=metrics_now, hist=hs_hist), vo2=vo2[-30:], vo2run=vo2run[-30:], streak=streak, patterns=patterns, local=LOCAL_NOW, plan=plan, gband=dict(spo2=g_spo2, sys=g_sys, dia=g_dia, temp=g_temp, glu=g_glu, hr=g_hr))
+data = dict(built=_dt.datetime.utcnow().strftime('%Y-%m-%d %H:%M'), sync=sync, today=TODAY, chrono=round(CHRONO, 1), hrmax=round(hrmax), days=out_days, order=days, healthspan=dict(age=age_now, prev=age_prev, pace=pace, metrics=metrics_now, hist=hs_hist), vo2=vo2[-30:], vo2run=vo2run[-30:], streak=streak, patterns=patterns, local=LOCAL_NOW, plan=plan, calib=calib, gband=dict(spo2=g_spo2, sys=g_sys, dia=g_dia, temp=g_temp, glu=g_glu, hr=g_hr))
 json.dump(data, open(OUT, 'w'), separators=(',', ':'))
 t = out_days[TODAY]
 y = out_days[days[-2]]
