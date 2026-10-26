@@ -36,13 +36,26 @@ PY
 
 # 2b. G Band nightly HRV / respiratory rate, read-only from the G-Band cloud with the app's own session.
 #     The session headers live on the receiver ("gband_auth"), never in this public repo. Nights accumulate in "gband_nightly".
-rx 'action=state&name=gband_nightly' > gband.json || true
-python3 -c "import json;d=json.load(open('gband.json'));assert isinstance(d,dict) and 'ok' not in d" 2>/dev/null || echo '{}' > gband.json
-rx 'action=state&name=gband_series' > gband_series.json || true
-python3 -c "import json;d=json.load(open('gband_series.json'));assert isinstance(d,dict) and 'ok' not in d" 2>/dev/null || echo '{}' > gband_series.json
+#     A failed read must never become an empty history that then overwrites the stored nights: retry, and if the
+#     receiver still does not answer, use the fetched nights for this run only and do not post them back.
+gb_ok=0; gs_ok=0
+for i in 1 2 3 4; do
+  rx 'action=state&name=gband_nightly' > gband.json || true
+  python3 -c "import json;d=json.load(open('gband.json'));assert isinstance(d,dict) and 'ok' not in d and len(d)>=5" 2>/dev/null && { gb_ok=1; break; }
+  sleep 10
+done
+[ $gb_ok = 1 ] || { echo "G Band history unreadable: not posting nights this run"; echo '{}' > gband.json; }
+for i in 1 2 3; do
+  rx 'action=state&name=gband_series' > gband_series.json || true
+  python3 -c "import json;d=json.load(open('gband_series.json'));assert isinstance(d,dict) and 'ok' not in d and len(d)>=1" 2>/dev/null && { gs_ok=1; break; }
+  sleep 10
+done
+[ $gs_ok = 1 ] || echo '{}' > gband_series.json
 if rx 'action=state&name=gband_auth' > gband_auth.json && python3 -c "import json;assert 'Authorization' in json.load(open('gband_auth.json'))" 2>/dev/null; then
   set +e; python3 -I -W ignore scripts/gband_nightly.py gband_auth.json gband.json 3 gband_series.json; rc=$?; set -e
-  if [ $rc = 0 ]; then post gband_nightly gband.json >/dev/null || true; post gband_series gband_series.json >/dev/null || true
+  if [ $rc = 0 ]; then
+    [ $gb_ok = 1 ] && { post gband_nightly gband.json >/dev/null || true; }
+    [ $gs_ok = 1 ] && { post gband_series gband_series.json >/dev/null || true; }
   elif [ $rc = 3 ]; then echo "G Band session expired: capture a new token"; fi
 fi
 rm -f gband_auth.json

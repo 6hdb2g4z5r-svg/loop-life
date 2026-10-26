@@ -153,7 +153,7 @@ def series(data):
 
 def nightly(data):
     blocks = blocks_utc(data)
-    sleeps = {}
+    sleeps, seen = {}, {}
     for day in data:
         lab = day.get('timezone') or 0
         for s in day.get('sleeps') or []:
@@ -161,6 +161,16 @@ def nightly(data):
             t0 = dt.datetime.utcfromtimestamp(s['sleepTime'] + lab * 60)
             t0 -= dt.timedelta(minutes=clock_at(t0))
             t1 = t0 + dt.timedelta(seconds=s['wakeTime'] - s['sleepTime'])
+            # around a time-zone change the cloud lists the same sleep under two day labels, hours apart:
+            # keep one copy, the one whose label matches the real clock at that instant
+            ident = (s['wakeTime'] - s['sleepTime'], s.get('sleepDuration'), s.get('sleepLine'))
+            ok = lab == off_utc(t0)
+            if ident in seen:
+                p0, pok = seen[ident]
+                if pok or not ok and p0 <= t0:
+                    continue
+                sleeps.pop(p0, None)
+            seen[ident] = (t0, ok)
             sleeps[t0] = (t0, t1, s)
     out = {}
     for t0, t1, s in sorted(merge(sleeps.values()), key=lambda x: x[2].get('sleepDuration') or 0):
