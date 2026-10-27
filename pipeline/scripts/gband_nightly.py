@@ -177,6 +177,43 @@ def series(data):
     return out
 
 
+def _bhr(b):
+    v = [x for x in (b.get('ppgs') or []) if x not in BAD and 30 <= x <= 200]
+    return st.median(v) if v else None
+
+
+def _bsteps(b):
+    s = b.get('step')
+    return sum(x for x in s if x not in BAD) if isinstance(s, list) else (s or 0)
+
+
+def onset_fix(t0, blocks, med, cap=240):
+    """The band sometimes starts a night hours after you fell asleep. Walk back from its start, 5 min at a time,
+    while the heart rate stays at sleep level (<= the night's median + 4 bpm) with no steps and a still wrist; a single block without
+    a reading is skipped, two in a row stop the walk. Returns the corrected start and the minutes added."""
+    bt = {t: b for t, b in blocks}
+    t = t0 - dt.timedelta(minutes=t0.minute % 5, seconds=t0.second) - dt.timedelta(minutes=5)
+    ext, miss, best = 0, 0, t0
+    while ext < cap:
+        b = bt.get(t)
+        h = _bhr(b) if b else None
+        mv = [x for x in ((b or {}).get('sleepActivitys') or []) if x != 255]
+        if b is not None and (_bsteps(b) > 0 or sum(mv) > 5):
+            break  # walking, or the wrist moving: awake
+        if h is None:
+            miss += 1
+            if miss >= 2:
+                break
+        elif h > med + 4:
+            break
+        else:
+            miss = 0
+            best = t
+        ext += 5
+        t -= dt.timedelta(minutes=5)
+    return best, round((t0 - best).total_seconds() / 60)
+
+
 def nightly(data):
     blocks = blocks_utc(data)
     sleeps, seen = {}, {}
@@ -216,6 +253,20 @@ def nightly(data):
         odi, ox90 = dips(oxa, (s.get('sleepDuration') or 0) / 60)
         if (s.get('sleepDuration') or 0) < 45:
             continue  # band taken off and left still (shower, charging): not a sleep
+        fix = 0
+        if len(hr) >= 6:
+            t0n, fix = onset_fix(t0, blocks, hr[len(hr) // 2])
+            if fix >= 15:  # extend the night: the added time counts as light sleep
+                more = [b for t, b in blocks if t0n <= t < t0]
+                s = dict(s, sleepDuration=(s.get('sleepDuration') or 0) + fix, lightDuration=(s.get('lightDuration') or 0) + fix,
+                         sleepLine='1' * round(fix * 60 / step) + line)
+                line, t0 = s['sleepLine'], t0n
+                inn = more + inn
+                hv = [v for v, q in (rmssd_clean(b) for b in inn) if v is not None]
+                hv0 = [v for v in (rmssd(rr(b)) for b in inn) if v is not None]
+                dp, lt, rem, aw = stages(line, step)
+            else:
+                fix = 0
         # same rule as the dashboard, on the LOCAL clock: a sleep starting 18:00 local or later counts for the next day
         key = (t0 + dt.timedelta(minutes=off_utc(t0) + 360)).date().isoformat()
         if key in out and (out[key].get('asleep') or 0) >= (s.get('sleepDuration') or 0):
@@ -225,7 +276,7 @@ def nightly(data):
             'asleep': s.get('sleepDuration'), 'deep': s.get('deepDuration'), 'light': s.get('lightDuration'),
             'line': line, 'step': step, 'sci': sci,
             'rem': rem if sci else None, 'awake': aw, 'deep_line': dp,
-            'odi': odi, 'ox90': ox90, 'ox_n': len(oxa), 'pieces': s.get('pieces', 1),
+            'odi': odi, 'ox90': ox90, 'ox_n': len(oxa), 'pieces': s.get('pieces', 1), 'onset_fix': fix,
             'hrv': round(st.median(hv), 1) if len(hv) >= 8 else None,
             'hrv_app': round(st.mean(ha), 1) if ha else None,
             'hrv_n': len(hv),
