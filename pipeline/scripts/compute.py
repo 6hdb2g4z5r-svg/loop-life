@@ -528,6 +528,22 @@ hs_hist.reverse()
 age_now, metrics_now = healthspan(NDAYS - 1)
 age_prev, _ = healthspan(NDAYS - 31)
 pace = round(clip(1 + (age_now - age_prev) * 0.5, -1, 3), 2)
+# ---- What moved Loop Age: age = chrono + one term per metric, so a change splits exactly by metric ----
+HS_FLOOR = dict(sleep_hours=-0.8, sleep_consistency=-1.2, zones_13=-1.2, zones_45=-0.8, strength=-0.9, steps=-2, vo2max=-5, rhr=-3, bmi=-0.5)
+def _drivers(back):
+ if NDAYS - 1 - back < 29:
+  return None
+ a0, m0 = healthspan(NDAYS - 1 - back)
+ items = []
+ for k in sorted(set(metrics_now) | set(m0)):
+  vn, cn = metrics_now.get(k, (None, 0.0))
+  vp, cp = m0.get(k, (None, 0.0))
+  items.append(dict(k=k, now=vn, then=vp, d=round(cn - cp, 2)))
+ items.sort(key=lambda x: x['d'])
+ return dict(days=back, then=a0, delta=round(age_now - a0, 1), items=items)
+hs_drivers = {w: _drivers(n) for w, n in (('w7', 7), ('w30', 30))}
+# years still to gain per metric (current term down to its best possible value)
+hs_room = sorted(({'k': k, 'c': c, 'room': round(c - HS_FLOOR[k], 2)} for k, (v, c) in metrics_now.items() if k in HS_FLOOR), key=lambda x: -x['room'])
 streak = 0
 for d in reversed(days):
  if out_days[d].get('sl') or out_days[d]['strain']:
@@ -618,7 +634,7 @@ def _plan():
 plan = _plan()
 sync = dict(watch_hr=lastof(lambda r: r[0] == 'HeartRate' and isW(r[1])), hr_any=lastof(lambda r: r[0] == 'HeartRate'), gband=lastof(lambda r: isG(r[1])), sleep=lastof(lambda r: r[0] == 'SleepAnalysis'), steps=lastof(lambda r: r[0] == 'StepCount'), workout=max((w['start'] for w in workouts), default=None), log=raw.get('meta', {}).get('log', []))
 import datetime as _dt
-data = dict(built=_dt.datetime.utcnow().strftime('%Y-%m-%d %H:%M'), sync=sync, today=TODAY, chrono=round(CHRONO, 1), hrmax=round(hrmax), days=out_days, order=days, healthspan=dict(age=age_now, prev=age_prev, pace=pace, metrics=metrics_now, hist=hs_hist), vo2=vo2[-30:], vo2run=vo2run[-30:], streak=streak, patterns=patterns, local=LOCAL_NOW, plan=plan, calib=calib, gband=dict(spo2=g_spo2, sys=g_sys, dia=g_dia, temp=g_temp, glu=g_glu, hr=g_hr))
+data = dict(built=_dt.datetime.utcnow().strftime('%Y-%m-%d %H:%M'), sync=sync, today=TODAY, chrono=round(CHRONO, 1), hrmax=round(hrmax), days=out_days, order=days, healthspan=dict(age=age_now, prev=age_prev, pace=pace, metrics=metrics_now, hist=hs_hist, drivers=hs_drivers, room=hs_room), vo2=vo2[-30:], vo2run=vo2run[-30:], streak=streak, patterns=patterns, local=LOCAL_NOW, plan=plan, calib=calib, gband=dict(spo2=g_spo2, sys=g_sys, dia=g_dia, temp=g_temp, glu=g_glu, hr=g_hr))
 json.dump(data, open(OUT, 'w'), separators=(',', ':'))
 t = out_days[TODAY]
 y = out_days[days[-2]]
@@ -628,3 +644,6 @@ for d in days[-10:]:
  print(d, x['rec'], x['sleep'], x['strain'], x['hrv'], x['rhr'], x.get('sl', {}).get('asleep'), x['steps'], x['zones'], x['stress'])
 print('nights with sleep', sum((1 for d in days if 'sl' in out_days[d])), '/', NDAYS)
 print('age', age_now, age_prev, pace, metrics_now)
+for _w, _x in hs_drivers.items():
+ if _x:
+  print('age drivers', _w, _x['then'], '->', age_now, [(i['k'], i['d']) for i in _x['items'] if i['d']])

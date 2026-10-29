@@ -551,6 +551,77 @@
   }
   setTimeout(pushHeal, 4000);
 
+  // ---- "What moved my Loop Age": exact split of the change by factor (dash.healthspan.drivers from compute.py) ----
+  (function ageDrivers() {
+    var LBL = { sleep_hours: ['Durée de sommeil', function (v) { return v.toFixed(1).replace('.', ',') + ' h'; }],
+      sleep_consistency: ['Régularité du sommeil', function (v) { return Math.round(v) + ' %'; }],
+      zones_13: ['Cardio zones 1–3', function (v) { return Math.round(v) + ' min/sem'; }],
+      zones_45: ['Intensité zones 4–5', function (v) { return Math.round(v) + ' min/sem'; }],
+      strength: ['Musculation', function (v) { return Math.round(v) + ' min/sem'; }],
+      steps: ['Pas', function (v) { return Math.round(v).toLocaleString('fr-FR') + '/j'; }],
+      vo2max: ['VO2max', function (v) { return v.toFixed(1).replace('.', ','); }],
+      rhr: ['FC repos', function (v) { return Math.round(v) + ' bpm'; }],
+      bmi: ['IMC', function (v) { return v.toFixed(1).replace('.', ','); }] };
+    var win = 'w30'; try { win = localStorage.getItem('ll_agewin') || 'w30'; } catch (e) {}
+    function hs() { try { return typeof D !== 'undefined' && D && D.healthspan && D.healthspan.drivers ? D.healthspan : null; } catch (e) { return null; } }
+    function yrs(x) { return (x > 0 ? '+' : x < 0 ? '−' : '') + Math.abs(x).toFixed(1).replace('.', ',') + ' an' + (Math.abs(x) >= 2 ? 's' : ''); }
+    function val(k, v) { return v == null ? '—' : (LBL[k] ? LBL[k][1](v) : String(v)); }
+    function html(h) {
+      var x = h.drivers[win] || h.drivers.w30 || h.drivers.w7; if (!x) return '';
+      var items = x.items.filter(function (i) { return Math.abs(i.d) >= 0.05; });
+      var max = Math.max.apply(null, items.map(function (i) { return Math.abs(i.d); }).concat([0.5]));
+      var tabs = ['w7', 'w30'].filter(function (w) { return h.drivers[w]; }).map(function (w) {
+        return '<button data-w="' + w + '" style="flex:none;padding:5px 11px;border-radius:999px;font:600 12px/1 inherit;border:1px solid var(--line,#2a333e);background:' + (w === win ? 'var(--fg,#eef2f6);color:var(--bg,#0c1117)' : 'transparent;color:var(--mute,#8e9aa8)') + '">' + (w === 'w7' ? '7 j' : '30 j') + '</button>';
+      }).join('');
+      var rows = items.length ? items.map(function (i) {
+        var good = i.d < 0, w = Math.round(Math.abs(i.d) / max * 100), c = good ? 'var(--good,#3ecf8e)' : 'var(--bad,#ff4d5e)';
+        return '<div style="padding:9px 0;border-top:1px solid var(--line,#2a333e)"><div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline">' +
+          '<span style="font-weight:600">' + (LBL[i.k] ? LBL[i.k][0] : i.k) + '</span><span style="font-weight:700;color:' + c + ';white-space:nowrap">' + yrs(i.d) + '</span></div>' +
+          '<div style="display:flex;justify-content:space-between;gap:10px;font-size:12px;color:var(--mute,#8e9aa8);margin-top:2px"><span>' + val(i.k, i.then) + ' → ' + val(i.k, i.now) + '</span></div>' +
+          '<div style="height:4px;border-radius:2px;background:var(--line,#2a333e);margin-top:6px;overflow:hidden"><div style="height:100%;width:' + w + '%;background:' + c + '"></div></div></div>';
+      }).join('') : '<div style="padding:10px 0;color:var(--mute,#8e9aa8);font-size:14px;border-top:1px solid var(--line,#2a333e)">Aucun facteur n\'a bougé de façon notable sur cette période.</div>';
+      var room = (h.room || []).filter(function (r) { return r.room >= 0.3; }).slice(0, 3).map(function (r) {
+        return '<div style="display:flex;justify-content:space-between;gap:10px;padding:4px 0;font-size:14px"><span>' + (LBL[r.k] ? LBL[r.k][0] : r.k) + '</span><span style="color:var(--mute,#8e9aa8);white-space:nowrap">jusqu\'à −' + r.room.toFixed(1).replace('.', ',') + ' an' + (r.room >= 2 ? 's' : '') + '</span></div>';
+      }).join('');
+      return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute,#8e9aa8)">Ce qui fait bouger ton Loop Age</div><div style="display:flex;gap:6px">' + tabs + '</div></div>' +
+        '<div style="margin:8px 0 6px;font-size:15px"><b style="font-size:20px;color:' + (x.delta <= 0 ? 'var(--good,#3ecf8e)' : 'var(--bad,#ff4d5e)') + '">' + yrs(x.delta) + '</b> en ' + x.days + ' jours <span style="color:var(--mute,#8e9aa8)">(' + String(x.then).replace('.', ',') + ' → ' + String(h.age).replace('.', ',') + ')</span></div>' +
+        rows + (room ? '<div style="margin-top:12px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute,#8e9aa8)">Plus grande marge restante</div>' + room : '');
+    }
+    // the Loop Age block: shortest element whose own text names it, then its card
+    function anchor(view) {
+      var best = null;
+      [].forEach.call(view.querySelectorAll('div,section,h1,h2,h3,h4,span,p'), function (el) {
+        if (best || el.id === 'll-agedrv' || el.closest('#ll-agedrv')) return;
+        var t = (el.textContent || '').trim();
+        if (t.length > 40 || !/loop\s*age|âge\s*loop|healthspan/i.test(t)) return;
+        var c = el;
+        while (c.parentElement && c.parentElement !== view && c.offsetHeight < 110) c = c.parentElement;
+        if (c !== view && c.offsetHeight >= 110 && c.offsetHeight < window.innerHeight * 1.5) best = c;
+      });
+      return best;
+    }
+    var busy = false;
+    function place() {
+      var h = hs(), view = document.getElementById('view'); if (!h || !view || busy) return;
+      var a = anchor(view), card = document.getElementById('ll-agedrv');
+      if (!a) { if (card) card.remove(); return; }
+      busy = true;
+      if (!card || card.previousElementSibling !== a) {
+        if (card) card.remove();
+        card = document.createElement('div'); card.id = 'll-agedrv';
+        var cs = getComputedStyle(a);
+        card.style.cssText = 'background:' + (cs.backgroundColor && cs.backgroundColor !== 'rgba(0, 0, 0, 0)' ? cs.backgroundColor : 'var(--card,#1b232d)') + ';border-radius:' + (cs.borderRadius || '16px') + ';padding:14px 16px;margin:' + (cs.marginBottom && cs.marginBottom !== '0px' ? '0 0 ' + cs.marginBottom : '12px 0') + ';color:var(--fg,#eef2f6)';
+        card.addEventListener('click', function (e) { var b = e.target.closest('button[data-w]'); if (!b) return; win = b.getAttribute('data-w'); try { localStorage.setItem('ll_agewin', win); } catch (er) {} card.innerHTML = html(hs()); });
+        a.insertAdjacentElement('afterend', card);
+      }
+      var s = html(h); if (card._s !== s) { card.innerHTML = s; card._s = s; }
+      busy = false;
+    }
+    var t; function soon() { clearTimeout(t); t = setTimeout(place, 120); }
+    function start() { var v = document.getElementById('view'); if (!v) return setTimeout(start, 300); new MutationObserver(function () { if (!busy) soon(); }).observe(v, { childList: true, subtree: true }); soon(); }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+  })();
+
   var CAPS = { db: DB, sample: sample, mcp: MCP };
   window.claude = freeze({ use: function (name) { return new Promise(function (res) { setTimeout(function () { res(CAPS[name] || null); }, 0); }); } });
 })();
