@@ -257,6 +257,23 @@ vo2 = sorted(((sd[:10], float(v)) for s, sd, ed, v in by['VO2Max']))
 hrv_all = sorted(((P(sd), float(v)) for s, sd, ed, v in by['HeartRateVariabilitySDNN']))
 resp = sorted(((P(sd), float(v)) for s, sd, ed, v in by['RespiratoryRate']))
 weights = sorted(((sd[:10], float(v)) for s, sd, ed, v in by['BodyMass']))
+# ---- Resting energy: Apple Health only has it when the Watch is worn. Without it a day showed "repos 0" and the
+#      calorie target fell to a floor, so meals looked like a big surplus. Fill it from the BMR (Mifflin-St Jeor,
+#      latest weight), counted up to the current local time for today, whenever Apple's figure is missing or partial.
+_now_loc = datetime.utcnow() + timedelta(minutes=LOCAL_NOW)
+basal_src = {}
+for _d in set(list(basal) + days):
+ _wt = [v for dt_, v in weights if dt_ <= _d]
+ _w = _wt[-1] if _wt else (weights[0][1] if weights else 64)
+ _age = (datetime.strptime(_d, '%Y-%m-%d').date() - DOB).days / 365.25
+ _bmr = 10 * _w + 6.25 * HEIGHT * 100 - 5 * _age + 5
+ if _d > _now_loc.strftime('%Y-%m-%d'):
+  continue
+ _frac = (_now_loc.hour * 60 + _now_loc.minute) / 1440 if _d == _now_loc.strftime('%Y-%m-%d') else 1
+ _exp = _bmr * _frac
+ if basal.get(_d, 0) < 0.85 * _exp:
+  basal[_d] = _exp
+  basal_src[_d] = 'bmr'
 
 def mean(x):
  return sum(x) / len(x) if x else None
@@ -429,7 +446,7 @@ for i, d in enumerate(days):
  hr5 = collections.defaultdict(list)
  for t, v in samp:
   hr5[t.hour * 12 + t.minute // 5].append(v)
- out_days[d] = dict(rec=rec, hrvSrc=hsrc, stepsSrc=steps_src.get(d, 'watch'), hrv=round(hrv, 1) if hrv else None, rhr=round(rhr) if rhr else None, resp=round(rr, 1) if rr else None, bH=round(bH, 1) if bH else None, bR=round(bR, 1) if bR else None, bP=round(bP, 1) if bP else None, sleep=spf, sleepD=sd_, need=round(need), strain=strain, zones=[round(z) for z in zones], steps=round(steps.get(d, 0)), active=round(active.get(d, 0)), cal=round(active.get(d, 0) + basal.get(d, 0)), dist=round(dist.get(d, 0), 2), stressH=stress_h, stress=stress_avg, workouts=[dict(wk_out(w, i >= NDAYS - 35), **{'vo2e': e} if (e := run_vo2(w, rb)) else {}) for w in wk_today])
+ out_days[d] = dict(rec=rec, hrvSrc=hsrc, stepsSrc=steps_src.get(d, 'watch'), hrv=round(hrv, 1) if hrv else None, rhr=round(rhr) if rhr else None, resp=round(rr, 1) if rr else None, bH=round(bH, 1) if bH else None, bR=round(bR, 1) if bR else None, bP=round(bP, 1) if bP else None, sleep=spf, sleepD=sd_, need=round(need), strain=strain, zones=[round(z) for z in zones], steps=round(steps.get(d, 0)), active=round(active.get(d, 0)), cal=round(active.get(d, 0) + basal.get(d, 0)), basal=round(basal.get(d, 0)), basalSrc=basal_src.get(d, 'apple'), dist=round(dist.get(d, 0), 2), stressH=stress_h, stress=stress_avg, workouts=[dict(wk_out(w, i >= NDAYS - 35), **{'vo2e': e} if (e := run_vo2(w, rb)) else {}) for w in wk_today])
  # ---- Health monitor / illness signal: tonight vs your own normal (prior 30 nights, at least 7) ----
  tN, sN = g.get('temp'), g.get('spo2')
  def _b(hh):
@@ -643,6 +660,7 @@ for d in days[-10:]:
  x = out_days[d]
  print(d, x['rec'], x['sleep'], x['strain'], x['hrv'], x['rhr'], x.get('sl', {}).get('asleep'), x['steps'], x['zones'], x['stress'])
 print('nights with sleep', sum((1 for d in days if 'sl' in out_days[d])), '/', NDAYS)
+print('energy', [(d, out_days[d]['steps'], out_days[d]['active'], out_days[d]['basal'], out_days[d]['basalSrc']) for d in days[-10:]])
 print('age', age_now, age_prev, pace, metrics_now)
 for _w, _x in hs_drivers.items():
  if _x:
