@@ -552,6 +552,7 @@
   setTimeout(pushHeal, 4000);
 
   // ---- "What moved my Loop Age": exact split of the change by factor (dash.healthspan.drivers from compute.py) ----
+  // Collapsed by default (title + headline); styled from the dashboard's own cards so fonts and colours match.
   (function ageDrivers() {
     var LBL = { sleep_hours: ['Durée de sommeil', function (v) { return v.toFixed(1).replace('.', ',') + ' h'; }],
       sleep_consistency: ['Régularité du sommeil', function (v) { return Math.round(v) + ' %'; }],
@@ -562,36 +563,45 @@
       vo2max: ['VO2max', function (v) { return v.toFixed(1).replace('.', ','); }],
       rhr: ['FC repos', function (v) { return Math.round(v) + ' bpm'; }],
       bmi: ['IMC', function (v) { return v.toFixed(1).replace('.', ','); }] };
-    var win = 'w30'; try { win = localStorage.getItem('ll_agewin') || 'w30'; } catch (e) {}
+    var win = 'w30', open = false;
+    try { win = localStorage.getItem('ll_agewin') || 'w30'; open = localStorage.getItem('ll_ageopen') === '1'; } catch (e) {}
+    var ST = { title: '', font: '', mute: 'var(--mute,#8e9aa8)', line: 'var(--line,#2a333e)' };
     function hs() { try { return typeof D !== 'undefined' && D && D.healthspan && D.healthspan.drivers ? D.healthspan : null; } catch (e) { return null; } }
-    function yrs(x) { return (x > 0 ? '+' : x < 0 ? '−' : '') + Math.abs(x).toFixed(1).replace('.', ',') + ' an' + (Math.abs(x) >= 2 ? 's' : ''); }
+    function n1(x) { return (Math.round(x * 10) / 10).toFixed(1).replace('.', ','); }
+    function yrs(x) { return (x > 0 ? '+' : x < 0 ? '−' : '') + n1(Math.abs(x)) + ' an' + (Math.abs(x) >= 2 ? 's' : ''); }
     function val(k, v) { return v == null ? '—' : (LBL[k] ? LBL[k][1](v) : String(v)); }
+    function lab(k) { return LBL[k] ? LBL[k][0] : k; }
     function html(h) {
       var x = h.drivers[win] || h.drivers.w30 || h.drivers.w7; if (!x) return '';
       var items = x.items.filter(function (i) { return Math.abs(i.d) >= 0.05; });
       var max = Math.max.apply(null, items.map(function (i) { return Math.abs(i.d); }).concat([0.5]));
+      var good = 'var(--good,#3ecf8e)', bad = 'var(--bad,#ff4d5e)';
       var tabs = ['w7', 'w30'].filter(function (w) { return h.drivers[w]; }).map(function (w) {
-        return '<button data-w="' + w + '" style="flex:none;padding:5px 11px;border-radius:999px;font:600 12px/1 inherit;border:1px solid var(--line,#2a333e);background:' + (w === win ? 'var(--fg,#eef2f6);color:var(--bg,#0c1117)' : 'transparent;color:var(--mute,#8e9aa8)') + '">' + (w === 'w7' ? '7 j' : '30 j') + '</button>';
+        return '<button data-w="' + w + '" style="flex:none;padding:5px 11px;border-radius:999px;font:inherit;font-size:12px;font-weight:600;line-height:1;cursor:pointer;border:1px solid ' + ST.line + ';background:' + (w === win ? 'var(--fg,#eef2f6);color:var(--bg,#0c1117)' : 'transparent;color:' + ST.mute) + '">' + (w === 'w7' ? '7 j' : '30 j') + '</button>';
       }).join('');
+      var head = '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><div style="' + ST.title + '">Moteurs du Loop Age</div><div style="display:flex;gap:6px">' + tabs + '</div></div>' +
+        '<button data-open style="all:unset;box-sizing:border-box;width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;cursor:pointer;font:inherit" aria-expanded="' + open + '">' +
+        '<span><b style="font-size:22px;font-weight:700;color:' + (x.delta <= 0 ? good : bad) + '">' + yrs(x.delta) + '</b> <span>en ' + x.days + ' jours</span> <span style="color:' + ST.mute + ';white-space:nowrap">(' + n1(x.then) + ' → ' + n1(h.age) + ')</span></span>' +
+        '<span style="flex:none;display:flex;align-items:center;gap:4px;color:' + ST.mute + ';font-size:13px">' + (open ? 'Masquer' : 'Détails') +
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="transition:transform .2s;transform:rotate(' + (open ? 180 : 0) + 'deg)"><path d="m6 9 6 6 6-6"/></svg></span></button>';
+      if (!open) return head;
       var rows = items.length ? items.map(function (i) {
-        var good = i.d < 0, w = Math.round(Math.abs(i.d) / max * 100), c = good ? 'var(--good,#3ecf8e)' : 'var(--bad,#ff4d5e)';
-        return '<div style="padding:9px 0;border-top:1px solid var(--line,#2a333e)"><div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline">' +
-          '<span style="font-weight:600">' + (LBL[i.k] ? LBL[i.k][0] : i.k) + '</span><span style="font-weight:700;color:' + c + ';white-space:nowrap">' + yrs(i.d) + '</span></div>' +
-          '<div style="display:flex;justify-content:space-between;gap:10px;font-size:12px;color:var(--mute,#8e9aa8);margin-top:2px"><span>' + val(i.k, i.then) + ' → ' + val(i.k, i.now) + '</span></div>' +
-          '<div style="height:4px;border-radius:2px;background:var(--line,#2a333e);margin-top:6px;overflow:hidden"><div style="height:100%;width:' + w + '%;background:' + c + '"></div></div></div>';
-      }).join('') : '<div style="padding:10px 0;color:var(--mute,#8e9aa8);font-size:14px;border-top:1px solid var(--line,#2a333e)">Aucun facteur n\'a bougé de façon notable sur cette période.</div>';
+        var c = i.d < 0 ? good : bad, w = Math.round(Math.abs(i.d) / max * 100);
+        return '<div style="padding:10px 0;border-top:1px solid ' + ST.line + '"><div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline">' +
+          '<span style="font-weight:600">' + lab(i.k) + '</span><span style="font-weight:700;color:' + c + ';white-space:nowrap">' + yrs(i.d) + '</span></div>' +
+          '<div style="font-size:12px;color:' + ST.mute + ';margin-top:2px">' + val(i.k, i.then) + ' → ' + val(i.k, i.now) + '</div>' +
+          '<div style="height:4px;border-radius:2px;background:' + ST.line + ';margin-top:7px;overflow:hidden"><div style="height:100%;width:' + w + '%;background:' + c + '"></div></div></div>';
+      }).join('') : '<div style="padding:10px 0;color:' + ST.mute + ';font-size:14px;border-top:1px solid ' + ST.line + '">Aucun facteur n\'a bougé de façon notable sur cette période.</div>';
       var room = (h.room || []).filter(function (r) { return r.room >= 0.3; }).slice(0, 3).map(function (r) {
-        return '<div style="display:flex;justify-content:space-between;gap:10px;padding:4px 0;font-size:14px"><span>' + (LBL[r.k] ? LBL[r.k][0] : r.k) + '</span><span style="color:var(--mute,#8e9aa8);white-space:nowrap">jusqu\'à −' + r.room.toFixed(1).replace('.', ',') + ' an' + (r.room >= 2 ? 's' : '') + '</span></div>';
+        return '<div style="display:flex;justify-content:space-between;gap:10px;padding:4px 0;font-size:14px"><span>' + lab(r.k) + '</span><span style="color:' + ST.mute + ';white-space:nowrap">jusqu\'à −' + n1(r.room) + ' an' + (r.room >= 2 ? 's' : '') + '</span></div>';
       }).join('');
-      return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute,#8e9aa8)">Ce qui fait bouger ton Loop Age</div><div style="display:flex;gap:6px">' + tabs + '</div></div>' +
-        '<div style="margin:8px 0 6px;font-size:15px"><b style="font-size:20px;color:' + (x.delta <= 0 ? 'var(--good,#3ecf8e)' : 'var(--bad,#ff4d5e)') + '">' + yrs(x.delta) + '</b> en ' + x.days + ' jours <span style="color:var(--mute,#8e9aa8)">(' + String(x.then).replace('.', ',') + ' → ' + String(h.age).replace('.', ',') + ')</span></div>' +
-        rows + (room ? '<div style="margin-top:12px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute,#8e9aa8)">Plus grande marge restante</div>' + room : '');
+      return head + '<div style="margin-top:12px">' + rows + '</div>' + (room ? '<div style="' + ST.title + ';margin:14px 0 6px">Plus grande marge restante</div>' + room : '');
     }
     // the Loop Age block: shortest element whose own text names it, then its card
     function anchor(view) {
       var best = null;
       [].forEach.call(view.querySelectorAll('div,section,h1,h2,h3,h4,span,p'), function (el) {
-        if (best || el.id === 'll-agedrv' || el.closest('#ll-agedrv')) return;
+        if (best || el.closest('#ll-agedrv')) return;
         var t = (el.textContent || '').trim();
         if (t.length > 40 || !/loop\s*age|âge\s*loop|healthspan/i.test(t)) return;
         var c = el;
@@ -600,22 +610,50 @@
       });
       return best;
     }
+    // copy the look of the dashboard's next regular card: its class (background, radius, padding, spacing) and its section title
+    function learn(card, a) {
+      var ref = a.nextElementSibling; while (ref && ref.id === 'll-agedrv') ref = ref.nextElementSibling;
+      ref = ref || a;
+      card.className = ref.className;
+      var rs = getComputedStyle(ref);
+      card.style.cssText = 'font-family:' + rs.fontFamily + ';color:' + rs.color + (ref === a ? ';background:var(--card,#1b232d);border-radius:16px;padding:16px;margin:12px 0' : '');
+      var t = null;
+      [].some.call(ref.querySelectorAll('*'), function (el) {
+        if (el.children.length) return false;
+        var s = (el.textContent || '').trim(); if (s.length < 4 || s.length > 40) return false;
+        var cs = getComputedStyle(el);
+        if (cs.textTransform === 'uppercase' || (s === s.toUpperCase() && /[A-ZÀ-Ý]{4}/.test(s))) { t = cs; return true; }
+        return false;
+      });
+      ST.title = t ? 'font-family:' + t.fontFamily + ';font-size:' + t.fontSize + ';font-weight:' + t.fontWeight + ';letter-spacing:' + t.letterSpacing + ';text-transform:uppercase;color:' + t.color
+        : 'font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase';
+      var root = getComputedStyle(document.documentElement);
+      if (root.getPropertyValue('--line').trim()) ST.line = 'var(--line)';
+      if (root.getPropertyValue('--mute').trim()) ST.mute = 'var(--mute)';
+    }
     var busy = false;
+    function draw(card) { var s = html(hs()); if (card._s !== s) { card.innerHTML = s; card._s = s; } }
     function place() {
       var h = hs(), view = document.getElementById('view'); if (!h || !view || busy) return;
       var a = anchor(view), card = document.getElementById('ll-agedrv');
       if (!a) { if (card) card.remove(); return; }
       busy = true;
-      if (!card || card.previousElementSibling !== a) {
-        if (card) card.remove();
-        card = document.createElement('div'); card.id = 'll-agedrv';
-        var cs = getComputedStyle(a);
-        card.style.cssText = 'background:' + (cs.backgroundColor && cs.backgroundColor !== 'rgba(0, 0, 0, 0)' ? cs.backgroundColor : 'var(--card,#1b232d)') + ';border-radius:' + (cs.borderRadius || '16px') + ';padding:14px 16px;margin:' + (cs.marginBottom && cs.marginBottom !== '0px' ? '0 0 ' + cs.marginBottom : '12px 0') + ';color:var(--fg,#eef2f6)';
-        card.addEventListener('click', function (e) { var b = e.target.closest('button[data-w]'); if (!b) return; win = b.getAttribute('data-w'); try { localStorage.setItem('ll_agewin', win); } catch (er) {} card.innerHTML = html(hs()); });
-        a.insertAdjacentElement('afterend', card);
-      }
-      var s = html(h); if (card._s !== s) { card.innerHTML = s; card._s = s; }
-      busy = false;
+      try {
+        if (!card || card.previousElementSibling !== a) {
+          if (card) card.remove();
+          card = document.createElement('div'); card.id = 'll-agedrv';
+          learn(card, a);
+          card.addEventListener('click', function (e) {
+            var b = e.target.closest('button[data-w]');
+            if (b) { win = b.getAttribute('data-w'); try { localStorage.setItem('ll_agewin', win); } catch (er) {} }
+            else if (e.target.closest('button[data-open]')) { open = !open; try { localStorage.setItem('ll_ageopen', open ? '1' : '0'); } catch (er) {} }
+            else return;
+            busy = true; draw(card); setTimeout(function () { busy = false; }, 0);
+          });
+          a.insertAdjacentElement('afterend', card);
+        }
+        draw(card);
+      } finally { setTimeout(function () { busy = false; }, 0); }
     }
     var t; function soon() { clearTimeout(t); t = setTimeout(place, 120); }
     function start() { var v = document.getElementById('view'); if (!v) return setTimeout(start, 300); new MutationObserver(function () { if (!busy) soon(); }).observe(v, { childList: true, subtree: true }); soon(); }
