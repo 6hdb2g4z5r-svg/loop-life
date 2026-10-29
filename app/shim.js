@@ -565,7 +565,7 @@
       bmi: ['IMC', function (v) { return v.toFixed(1).replace('.', ','); }] };
     var win = 'w30', open = false;
     try { win = localStorage.getItem('ll_agewin') || 'w30'; open = localStorage.getItem('ll_ageopen') === '1'; } catch (e) {}
-    var ST = { title: '', font: '', mute: 'var(--mute,#8e9aa8)', line: 'var(--line,#2a333e)' };
+    var ST = { title: '', num: 'font-weight:700', font: '', mute: 'var(--mute,#8e9aa8)', line: 'var(--line,#2a333e)' };
     function hs() { try { return typeof D !== 'undefined' && D && D.healthspan && D.healthspan.drivers ? D.healthspan : null; } catch (e) { return null; } }
     function n1(x) { return (Math.round(x * 10) / 10).toFixed(1).replace('.', ','); }
     function yrs(x) { return (x > 0 ? '+' : x < 0 ? '−' : '') + n1(Math.abs(x)) + ' an' + (Math.abs(x) >= 2 ? 's' : ''); }
@@ -581,7 +581,7 @@
       }).join('');
       var head = '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><div style="' + ST.title + '">Moteurs du Loop Age</div><div style="display:flex;gap:6px">' + tabs + '</div></div>' +
         '<button data-open style="all:unset;box-sizing:border-box;width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;cursor:pointer;font:inherit" aria-expanded="' + open + '">' +
-        '<span><b style="font-size:22px;font-weight:700;color:' + (x.delta <= 0 ? good : bad) + '">' + yrs(x.delta) + '</b> <span>en ' + x.days + ' jours</span> <span style="color:' + ST.mute + ';white-space:nowrap">(' + n1(x.then) + ' → ' + n1(h.age) + ')</span></span>' +
+        '<span><b style="font-size:26px;' + ST.num + ';color:' + (x.delta <= 0 ? good : bad) + '">' + yrs(x.delta) + '</b> <span>en ' + x.days + ' jours</span> <span style="color:' + ST.mute + ';white-space:nowrap">(' + n1(x.then) + ' → ' + n1(h.age) + ')</span></span>' +
         '<span style="flex:none;display:flex;align-items:center;gap:4px;color:' + ST.mute + ';font-size:13px">' + (open ? 'Masquer' : 'Détails') +
         '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="transition:transform .2s;transform:rotate(' + (open ? 180 : 0) + 'deg)"><path d="m6 9 6 6 6-6"/></svg></span></button>';
       if (!open) return head;
@@ -611,6 +611,7 @@
       return best;
     }
     // copy the look of the dashboard's next regular card: its class (background, radius, padding, spacing) and its section title
+    function q(f) { return String(f || '').replace(/"/g, "'"); }
     function learn(card, a) {
       var ref = a.nextElementSibling; while (ref && ref.id === 'll-agedrv') ref = ref.nextElementSibling;
       ref = ref || a;
@@ -625,7 +626,13 @@
         if (cs.textTransform === 'uppercase' || (s === s.toUpperCase() && /[A-ZÀ-Ý]{4}/.test(s))) { t = cs; return true; }
         return false;
       });
-      ST.title = t ? 'font-family:' + t.fontFamily + ';font-size:' + t.fontSize + ';font-weight:' + t.fontWeight + ';letter-spacing:' + t.letterSpacing + ';text-transform:uppercase;color:' + t.color
+      var big = null, bs = 0;
+      [].forEach.call(ref.querySelectorAll('*'), function (el) {
+        if (el.children.length || !/\d/.test(el.textContent || '')) return;
+        var f = parseFloat(getComputedStyle(el).fontSize) || 0; if (f > bs) { bs = f; big = getComputedStyle(el); }
+      });
+      ST.num = big && bs >= 20 ? 'font-family:' + q(big.fontFamily) + ';font-weight:' + big.fontWeight + ';letter-spacing:' + big.letterSpacing : 'font-weight:700';
+      ST.title = t ? 'font-family:' + q(t.fontFamily) + ';font-size:' + t.fontSize + ';font-weight:' + t.fontWeight + ';letter-spacing:' + t.letterSpacing + ';text-transform:uppercase;color:' + t.color
         : 'font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase';
       var root = getComputedStyle(document.documentElement);
       if (root.getPropertyValue('--line').trim()) ST.line = 'var(--line)';
@@ -650,7 +657,14 @@
             else return;
             busy = true; draw(card); setTimeout(function () { busy = false; }, 0);
           });
+          var nx = a.nextElementSibling, gap = nx ? Math.round(nx.getBoundingClientRect().top - a.getBoundingClientRect().bottom) : 12;
           a.insertAdjacentElement('afterend', card);
+          if (gap > 0) {
+            card.style.marginTop = '0px'; card.style.marginBottom = '0px';
+            var d1 = card.getBoundingClientRect().top - a.getBoundingClientRect().bottom;
+            var d2 = nx ? nx.getBoundingClientRect().top - card.getBoundingClientRect().bottom : gap;
+            card.style.marginTop = Math.max(0, gap - d1) + 'px'; card.style.marginBottom = Math.max(0, gap - d2) + 'px';
+          }
         }
         draw(card);
       } finally { setTimeout(function () { busy = false; }, 0); }
