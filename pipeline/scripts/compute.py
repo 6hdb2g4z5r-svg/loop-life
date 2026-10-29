@@ -262,11 +262,16 @@ weights = sorted(((sd[:10], float(v)) for s, sd, ed, v in by['BodyMass']))
 #      latest weight), counted up to the current local time for today, whenever Apple's figure is missing or partial.
 _now_loc = datetime.utcnow() + timedelta(minutes=LOCAL_NOW)
 basal_src = {}
-for _d in set(list(basal) + days):
+def _bmr_of(_d):
  _wt = [v for dt_, v in weights if dt_ <= _d]
  _w = _wt[-1] if _wt else (weights[0][1] if weights else 64)
  _age = (datetime.strptime(_d, '%Y-%m-%d').date() - DOB).days / 365.25
- _bmr = 10 * _w + 6.25 * HEIGHT * 100 - 5 * _age + 5
+ return 10 * _w + 6.25 * HEIGHT * 100 - 5 * _age + 5
+# personal calibration: the formula vs Apple's own resting figure on full Watch days (last 60 days, needs 5+)
+_ratios = sorted(basal[_d] / _bmr_of(_d) for _d in days[-61:-1] if basal.get(_d, 0) >= 0.85 * _bmr_of(_d))
+BMR_K = max(0.9, min(1.2, _ratios[len(_ratios) // 2])) if len(_ratios) >= 5 else 1.0
+for _d in set(list(basal) + days):
+ _bmr = _bmr_of(_d) * BMR_K
  if _d > _now_loc.strftime('%Y-%m-%d'):
   continue
  _frac = (_now_loc.hour * 60 + _now_loc.minute) / 1440 if _d == _now_loc.strftime('%Y-%m-%d') else 1
@@ -660,6 +665,7 @@ for d in days[-10:]:
  x = out_days[d]
  print(d, x['rec'], x['sleep'], x['strain'], x['hrv'], x['rhr'], x.get('sl', {}).get('asleep'), x['steps'], x['zones'], x['stress'])
 print('nights with sleep', sum((1 for d in days if 'sl' in out_days[d])), '/', NDAYS)
+print('bmr_k', round(BMR_K, 3), len(_ratios))
 print('energy', [(d, out_days[d]['steps'], out_days[d]['active'], out_days[d]['basal'], out_days[d]['basalSrc']) for d in days[-10:]])
 print('age', age_now, age_prev, pace, metrics_now)
 for _w, _x in hs_drivers.items():
