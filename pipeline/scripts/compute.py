@@ -665,10 +665,4 @@ for d in days[-10:]:
  x = out_days[d]
  print(d, x['rec'], x['sleep'], x['strain'], x['hrv'], x['rhr'], x.get('sl', {}).get('asleep'), x['steps'], x['zones'], x['stress'])
 print('nights with sleep', sum((1 for d in days if 'sl' in out_days[d])), '/', NDAYS)
-print('bmr_k', round(BMR_K, 3), len(_ratios))
-print('energy', [(d, out_days[d]['steps'], out_days[d]['active'], out_days[d]['basal'], out_days[d]['basalSrc']) for d in days[-10:]])
 print('age', age_now, age_prev, pace, metrics_now)
-for _w, _x in hs_drivers.items():
- if _x:
-  print('age drivers', _w, _x['then'], '->', age_now, [(i['k'], i['d']) for i in _x['items'] if i['d']])
-print('strain', 'hrmax', round(hrmax), [(d[5:], out_days[d]['strain'], [round(z) for z in out_days[d]['zones']], [w['type'][:8] + ':' + str(w['dur']) for w in out_days[d]['workouts']]) for d in days[-21:]])
