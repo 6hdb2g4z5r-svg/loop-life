@@ -671,3 +671,4 @@ print('age', age_now, age_prev, pace, metrics_now)
 for _w, _x in hs_drivers.items():
  if _x:
   print('age drivers', _w, _x['then'], '->', age_now, [(i['k'], i['d']) for i in _x['items'] if i['d']])
+print('strain', 'hrmax', round(hrmax), [(d[5:], out_days[d]['strain'], [round(z) for z in out_days[d]['zones']], [w['type'][:8] + ':' + str(w['dur']) for w in out_days[d]['workouts']]) for d in days[-21:]])
