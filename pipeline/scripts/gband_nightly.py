@@ -214,6 +214,42 @@ def onset_fix(t0, blocks, med, cap=240):
     return best, round((t0 - best).total_seconds() / 60)
 
 
+def wake_fix(t1, blocks):
+    """The band only ends a night once you get up: lying awake in bed still counts as sleep. In the last 2 hours, look
+    for the first 5-min block at least 8 bpm above the previous hour's median, after which heart rate stays raised up
+    to the band's end (mean and median >= +3 bpm, never back below that hour's level). Returns that block's start, or
+    t1 when there is none. Heart rate only: tested on 15 nights, it fired on the one known case and on no other."""
+    bt = {t: _bhr(b) for t, b in blocks}
+    end = t1 - dt.timedelta(minutes=t1.minute % 5, seconds=t1.second)
+    bl = [(end - dt.timedelta(minutes=5 * i), None) for i in range(36, 0, -1)]
+    bl = [(t, bt.get(t)) for t, _ in bl]
+    if sum(1 for _, v in bl if v) < 24:
+        return t1
+    for i in range(12, len(bl)):
+        t, v = bl[i]
+        pre = [x for _, x in bl[i - 12:i] if x]
+        post = [x for _, x in bl[i + 1:] if x]
+        if v is None or len(pre) < 8 or len(post) < 3:
+            continue
+        base = st.median(pre)
+        if v >= base + 8 and st.mean(post) >= base + 3 and st.median(post) >= base + 3 and min(post) >= base:
+            return t
+    return t1
+
+
+def trim_end(s, cut):
+    """Drop the last `cut` minutes from a sleep: its line and the stage totals that line accounts for."""
+    line, step = s.get('sleepLine') or '', s.get('onePointDuration') or 60
+    n = round(cut * 60 / step)
+    if not line or n <= 0 or n >= len(line):
+        return s
+    tail, k = line[-n:], step / 60
+    return dict(s, sleepLine=line[:-n],
+                sleepDuration=(s.get('sleepDuration') or 0) - round(sum(tail.count(c) for c in '012') * k),
+                deepDuration=max(0, (s.get('deepDuration') or 0) - round(tail.count('0') * k)),
+                lightDuration=max(0, (s.get('lightDuration') or 0) - round(tail.count('1') * k)))
+
+
 def nightly(data):
     blocks = blocks_utc(data)
     sleeps, seen = {}, {}
@@ -237,6 +273,13 @@ def nightly(data):
             sleeps[t0] = (t0, t1, s)
     out = {}
     for t0, t1, s in sorted(merge(sleeps.values()), key=lambda x: x[2].get('sleepDuration') or 0):
+        t1n = wake_fix(t1, blocks)
+        cut = round((t1 - t1n).total_seconds() / 60)
+        if cut >= 15:
+            s = trim_end(s, cut)
+            t1 = t1n
+        else:
+            cut = 0
         inn = [b for t, b in blocks if t0 <= t < t1]
         hv0 = [v for v in (rmssd(rr(b)) for b in inn) if v is not None]  # unfiltered, kept for comparison
         hv = [v for v, q in (rmssd_clean(b) for b in inn) if v is not None]
@@ -276,7 +319,7 @@ def nightly(data):
             'asleep': s.get('sleepDuration'), 'deep': s.get('deepDuration'), 'light': s.get('lightDuration'),
             'line': line, 'step': step, 'sci': sci,
             'rem': rem if sci else None, 'awake': aw, 'deep_line': dp,
-            'odi': odi, 'ox90': ox90, 'ox_n': len(oxa), 'pieces': s.get('pieces', 1), 'onset_fix': fix,
+            'odi': odi, 'ox90': ox90, 'ox_n': len(oxa), 'pieces': s.get('pieces', 1), 'onset_fix': fix, 'wake_fix': cut,
             'hrv': round(st.median(hv), 1) if len(hv) >= 8 else None,
             'hrv_app': round(st.mean(ha), 1) if ha else None,
             'hrv_n': len(hv),
