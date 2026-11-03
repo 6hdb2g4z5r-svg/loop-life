@@ -457,7 +457,7 @@
     callTool: function (server, tool) {
       return dispatch().then(function (ok) {
         // the workflow takes ~1–2 min; poll the dashboard a few times, then reload
-        if (ok) setTimeout(refetchDash, 120000); else setTimeout(refetchDash, 1500);
+        if (ok) [60000, 100000, 140000, 200000].forEach(function (ms) { setTimeout(refetchDash, ms); }); else setTimeout(refetchDash, 1500);
         var payload = { ok: true, dispatched: ok, note: ok ? 'Synchro lancée (GitHub Actions)' : 'Données rechargées' };
         return { ok: true, payload: payload, content: [{ type: 'text', text: JSON.stringify(payload) }], isError: false };
       });
@@ -490,20 +490,16 @@
     if (checking || !window.caches || Date.now() - lastCheck < 20000) return;
     checking = true; lastCheck = Date.now();
     var ctl = new AbortController(), to = setTimeout(function () { ctl.abort(); }, 90000);
-    Promise.all(['dash', 'template'].map(function (n) {
-      return fetch(rq({ action: 'state', name: n }), { cache: 'no-store', signal: ctl.signal }).then(function (r) { return r.text(); });
-    })).then(function (x) {
-      if (x[1].indexOf('/*DATA*/') < 0) return;
-      var dj = JSON.parse(x[0]); if (!dj || !Array.isArray(dj.order) || !dj.order.length || !dj.days) return;   // receiver hiccup, not a dashboard
-      return caches.open('ll-data-v1').then(function (c) {
-        return Promise.all([c.match('/__ll/dash'), c.match('/__ll/template')]).then(function (m) {
-          return Promise.all(m.map(function (r) { return r ? r.text() : ''; }));
-        }).then(function (old) {
-          if (old[0] === x[0] && old[1] === x[1]) return;
-          var put = function (n, t) { return c.put('/__ll/' + n, new Response(t, { headers: { 'content-type': 'text/plain' } })); };
-          return Promise.all([put('dash', x[0]), put('template', x[1])]).then(function () { safeReload(); });
-        });
-      });
+    var get = function (n) { return fetch(rq({ action: 'state', name: n }), { cache: 'no-store', signal: ctl.signal }).then(function (r) { return r.text(); }); };
+    var put = function (n, t) { return caches.open('ll-data-v1').then(function (c) { return c.put('/__ll/' + n, new Response(t, { headers: { 'content-type': 'text/plain' } })); }); };
+    Promise.all([get('widget'), get('template_v')]).then(function (x) {
+      var w = JSON.parse(x[0]), v = x[1].trim(), jobs = [];
+      if (v && v[0] !== '{' && v !== localStorage.getItem('ll_tv')) jobs.push(get('template').then(function (t) { if (t.indexOf('/*DATA*/') < 0) return; return put('template', t).then(function () { localStorage.setItem('ll_tv', v); safeReload(); }); }));
+      if (w && w.built && window.__dashBuilt && w.built !== window.__dashBuilt()) jobs.push(get('dash').then(function (t) {
+        var dj = JSON.parse(t); if (!dj || !Array.isArray(dj.order) || !dj.order.length || !dj.days) return;
+        return put('dash', t).then(function () { if (busy() || !window.__applyDash(dj)) safeReload(); });
+      }));
+      return Promise.all(jobs);
     }).catch(function () {}).then(function () { clearTimeout(to); checking = false; });
   }
   setTimeout(freshCheck, 1500);

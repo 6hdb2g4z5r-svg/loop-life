@@ -81,14 +81,11 @@ button{flex:1;padding:14px;border:0;border-radius:12px;font:600 16px/1 inherit;f
       // iPhone app layout fixes: opaque header pinned under the status bar, tab bar lowered and backed so no text shows beneath it
       var NB = 'max(6px,calc(env(safe-area-inset-bottom,0px) - 14px))';
       var fix = '<style id="ll-pwa-fix">' +
-        '.top{position:relative!important;top:auto!important;z-index:5!important;padding-top:10px!important}' +
-        'body:before{content:"";position:fixed;left:0;right:0;top:0;height:env(safe-area-inset-top,0px);background:var(--top);z-index:50;pointer-events:none}' +
-        '.who{gap:6px!important}.top{gap:6px}.datenav .d{min-width:0!important;padding:5px 9px!important}.datenav button{width:24px!important}.topr{gap:6px!important}.syncb{padding:5px 8px!important}' +
+        '.top{z-index:5!important}' +
+        'body:before{content:"";position:fixed;left:0;right:0;top:0;height:env(safe-area-inset-top,0px);background:#000;z-index:50;pointer-events:none}' +
+        '.who{gap:6px!important}.top{gap:6px}#ll-gear{display:none!important}.datenav .d{min-width:0!important;width:auto!important;padding:0 8px!important;font-size:11.5px!important;letter-spacing:.06em!important}.datenav button:not(.d){width:20px!important}.top{gap:4px!important}.topr{gap:6px!important}.syncb{padding:5px 8px!important}' +
         '#ll-gear{width:32px;height:32px;flex:none;border-radius:50%;display:grid;place-items:center;background:var(--card);border:1px solid var(--line);color:var(--mute);padding:0;cursor:pointer;-webkit-tap-highlight-color:transparent}' +
-        '.nav{z-index:12!important;padding-bottom:' + NB + '!important;background:linear-gradient(to bottom,transparent 0,var(--bg) 26px)!important}' +
-        '.nav .in{background:var(--card)!important;backdrop-filter:none!important}' +
-        '.cbub{bottom:calc(' + NB + ' + 82px + var(--lift))!important;width:56px!important;height:56px!important;border-radius:18px!important}' +
-        '.app{padding-bottom:calc(96px + var(--lift))!important}' +
+        '.nav{z-index:12!important}' +
         '</style>';
       var placed = false;
       html = html.replace(/(<div class="who">[\s\S]*?<\/button>)/, function (m) { placed = true; return m + gear; });
