@@ -44,6 +44,28 @@ button{flex:1;padding:14px;border:0;border-radius:12px;font:600 16px/1 inherit;f
   'use strict';
   var CK = 'll_cfg', DATA_CACHE = 'll-data-v1';
   var $ = function (id) { return document.getElementById(id); };
+  // Personal icon: pick a photo, then Add to Home Screen. The image stays on this phone (nothing is uploaded).
+  if (/[?&]icon\b/.test(location.search)) {
+    $('boot').innerHTML = '<div style="width:100%;max-width:360px;text-align:center"><h1>Icône de l’app</h1><p class="sub">Choisis ta photo. Elle reste sur ton iPhone.</p>' +
+      '<label class="pri" style="display:block;padding:15px;border-radius:12px;font-size:16px;letter-spacing:0;text-transform:none;color:#06121c;font-weight:600;cursor:pointer">Choisir ma photo<input id="ic" type="file" accept="image/*" hidden></label>' +
+      '<img id="pv" alt="" hidden style="width:120px;height:120px;border-radius:26px;margin:22px auto 0;display:block">' +
+      '<p id="ok" class="sub" hidden style="margin-top:18px;color:#eef2f6;font-size:16px">C’est prêt. Touche maintenant <b>Partager</b> en bas de Safari, puis <b>Sur l’écran d’accueil</b>, puis <b>Ajouter</b>.</p></div>';
+    var size = function (img, n) { var c = document.createElement('canvas'); c.width = c.height = n; var x = c.getContext('2d'), m = Math.min(img.naturalWidth, img.naturalHeight); x.fillStyle = '#000'; x.fillRect(0, 0, n, n); x.drawImage(img, (img.naturalWidth - m) / 2, (img.naturalHeight - m) / 2, m, m, 0, 0, n, n); return c.toDataURL('image/png'); };
+    $('ic').onchange = function () {
+      var f = this.files && this.files[0]; if (!f) return;
+      var img = new Image(); img.onload = function () {
+        var a180 = size(img, 180), a512 = size(img, 512);
+        document.querySelectorAll('link[rel="apple-touch-icon"],link[rel="icon"],link[rel="manifest"]').forEach(function (l) { l.remove(); });
+        var add = function (r, h) { var l = document.createElement('link'); l.rel = r; l.href = h; document.head.appendChild(l); };
+        var base = location.origin + location.pathname;
+        add('apple-touch-icon', a180); add('icon', a180);
+        add('manifest', 'data:application/manifest+json,' + encodeURIComponent(JSON.stringify({ name: 'Loop Life', short_name: 'Loop Life', start_url: base, scope: base, display: 'standalone', background_color: '#000000', theme_color: '#000000', icons: [{ src: a512, sizes: '512x512', type: 'image/png' }] })));
+        $('pv').src = a180; $('pv').hidden = false; $('ok').hidden = false; URL.revokeObjectURL(img.src);
+      };
+      img.src = URL.createObjectURL(f);
+    };
+    return;
+  }
   function cfg() { try { return JSON.parse(localStorage.getItem(CK) || '{}'); } catch (e) { return {}; } }
   function url(c, params) { var q = new URLSearchParams(Object.assign({ key: c.receiverKey }, params)); return c.receiverUrl + (c.receiverUrl.indexOf('?') < 0 ? '?' : '&') + q; }
   function withTimeout(p, ms) { return Promise.race([p, new Promise(function (_, rej) { setTimeout(function () { rej(new Error('timeout')); }, ms); })]); }
