@@ -210,6 +210,17 @@ if T in days and 7 <= H < 23:
             add('rhr', f'FC de repos élevée · +{round(rhr - br)} bpm',
                 'Avec une VFC basse, c’est un signe de fatigue, de stress ou d’un début de maladie. Hydrate-toi et garde l’effort léger aujourd’hui.', event=True, prio=2)
 
+    # 1b. Morning brief and evening review written by the scheduled coaches (as soon as they are ready)
+    def brief_body(b):
+        pts = b.get('fr_pts') or []
+        return ((b.get('fr') or b.get('en') or '') + ('\n' + '\n'.join('• ' + p for p in pts) if pts else ''))[:560]
+    _b = docs('db_brief').get(T)
+    if _b and H < 15:
+        add('brief', 'Brief du matin', brief_body(_b), event=True, prio=1)
+    _e = docs('db_briefe').get(T)
+    if _e:
+        add('brief_eve', 'Bilan de ta journée', brief_body(_e), event=True, prio=1)
+
     # 2. Workouts (each new one, once)
     for w in x.get('workouts') or []:
         if 'Walk' in w.get('type', '') or 'Hik' in w.get('type', ''):
@@ -269,7 +280,7 @@ if T in days and 7 <= H < 23:
     try:
         built = dt.datetime.strptime(D['built'][:16], '%Y-%m-%d %H:%M')
         if 10 <= H < 22 and (now - built).total_seconds() > 3 * 3600:
-            add('nodata', 'Pas de nouvelles données depuis 3 h', 'Ouvre WhatsApp ou Health Auto Export (iPhone déverrouillé) pour synchroniser.', prio=6)
+            add('nodata', 'Pas de nouvelles données depuis 3 h', 'Ouvre l’app G Band quelques secondes, puis touche le bouton de synchro dans Loop Life.', prio=6)
     except Exception:
         pass
 
