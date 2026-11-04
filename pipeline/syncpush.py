@@ -30,11 +30,11 @@ def main():
         prev = {}
     ch = changes(prev, json.load(open(sys.argv[2])))
     if ch:
-        N.push_raw('Loop Life · Nouvelles données', ' · '.join(ch[:4]))
+        N.push_raw('Nouvelles données', ' · '.join(ch[:4]))
     elif at > float(sys.argv[3]):
         return  # this run started before the tap: the next run answers
     else:
-        N.push_raw('Loop Life · Synchro terminée', 'Pas de nouveaux chiffres du bracelet. Ouvre G Band puis relance.')
+        N.push_raw('Synchro terminée', 'Pas de nouveaux chiffres du bracelet. Ouvre G Band puis relance.')
     N.rx_put('sync_req', {'done': True, 'at': req['at']})
 
 

@@ -66,6 +66,7 @@ out="$(python3 -I scripts/refresh.py "$W" 2>&1 || { sleep 30; python3 -I scripts
 echo "$out" | tail -12
 n="$(echo "$out" | sed -n 's/^inbox files: \([0-9]*\).*/\1/p' | head -1)"
 echo "$out" | grep -q '^OK rows added' || { echo "refresh failed"; exit 1; }
+python3 "$HERE/planfix.py" dash.json || echo "plan step failed"
 
 # 4. publish the new dashboard data to the receiver (the iPhone app reads "dash")
 #    Also re-publish when the receiver's copy lags behind the data we hold (a previous run's POST was lost in a

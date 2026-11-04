@@ -63,4 +63,16 @@ var llDayPlan = (function () {
       nextRest: owed > 0 ? (left.find(d => d > T) || null) : null};
   };
 })();
+// Today's plan once the locked week plan is applied: same rules as the dashboard's wpDayPlan, so every surface shows one target.
+llDayPlan.withWeek = function (D, prof, T, plans) {
+  const b = llDayPlan(D, prof, T);
+  const inPlan = (plans || []).filter(p => (p.days || []).some(x => x.date === T)).sort((x, y) => (x.days[0].date < y.days[0].date ? -1 : 1)).pop();
+  const wp = inPlan && inPlan.days.find(x => x.date === T);
+  if (!wp) return b;
+  const m = String(wp.strain || '').match(/(\d+(?:[.,]\d+)?)\s*[-–]\s*(\d+(?:[.,]\d+)?)/), band = m ? [+m[1].replace(',', '.'), +m[2].replace(',', '.')] : null;
+  if (wp.type === 'rest' || wp.type === 'recovery') return Object.assign({}, b, {type: 'rest', band: band || [0, 7]});
+  if (b.type === 'recovery') return b;
+  if (b.type === 'light') return b;   // tired today: the reduced band wins over the week plan's number
+  return Object.assign({}, b, {type: wp.type === 'easy' ? 'light' : 'train', band: band || b.band});
+};
 if (typeof module !== 'undefined') module.exports = llDayPlan;

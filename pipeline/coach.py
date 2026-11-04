@@ -109,6 +109,9 @@ def day_plan():
         return None
 
 DP = day_plan() if T in days else None
+_P = D.get('plan') or {}
+if DP and _P.get('day') == T and _P.get('strain'):   # one target everywhere: the plan published in the dashboard
+    DP['band'] = _P['strain']; DP['type'] = _P.get('type') or DP['type']
 REST = bool(DP and DP['type'] in ('rest', 'recovery'))
 lo, hi = (DP['band'] if DP else [None, None])
 rec, strain, steps = x.get('rec'), x.get('strain') or 0, x.get('steps') or 0
@@ -166,6 +169,9 @@ def bedtime():
     wk = sum(int(w[:2]) * 60 + int(w[3:]) for w in wakes) / len(wakes) if wakes else 480
     r3 = [days[k]['sl']['asleep'] for k in order[-3:] if days[k].get('sl')]
     need = 460 + (sum(max(0, 460 - v) for v in r3) / len(r3) * 0.5 if r3 else 0) + strain * 2.5
+    if _P.get('day') == T and _P.get('bed') and _P.get('wake'):   # same bedtime as the dashboard
+        m = lambda c: int(c[:2]) * 60 + int(c[3:])
+        return m(_P['bed']), m(_P['wake']), need
     return (wk - need / 0.94 - 10) % 1440, wk, need
 
 def sleep_debt():
