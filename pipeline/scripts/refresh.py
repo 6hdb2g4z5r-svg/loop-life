@@ -24,20 +24,26 @@ def runlog(**kw):
 runlog(stage='start')
 state = json.loads(gzip.decompress(base64.b64decode(get(action='state', name='state'))))
 files = json.loads(get(action='list'))['files']
+# unreadable old inbox files stay on Drive but are not retried on every run (they cost minutes and forced a full save)
+_bad = set(state.get('meta', {}).get('bad_inbox', []))
+files = [f for f in files if f['id'] not in _bad]
 print('inbox files:', len(files))
 added = 0
 ok_files = []
 for f in files:
  payload = None
- for attempt in range(3):
+ for attempt in range(2):
   try:
    payload = json.loads(get(action='file', id=f['id']))
    break
   except Exception as e:
    err = e
-   time.sleep(15)
+   time.sleep(3)
  if payload is None:
   print('skip (kept in inbox)', f['name'], err)
+  # older than 2 days: remember it as unreadable; a fresh file may just be a receiver hiccup, so it is retried
+  if f['name'][4:12] < time.strftime('%Y%m%d', time.gmtime(time.time() - 2 * 86400)):
+   state.setdefault('meta', {}).setdefault('bad_inbox', []).append(f['id'])
   continue
  try:
   rows, wks = convert(payload)

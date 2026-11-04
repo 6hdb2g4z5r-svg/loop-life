@@ -5,6 +5,7 @@
 # Needs env: RECEIVER_URL RECEIVER_KEY TG_TOKEN TG_CHAT (GitHub Actions secrets).
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
+RUN0="$(date +%s)"
 W="${RUNNER_TEMP:-/tmp}/looplife"
 rm -rf "$W" && mkdir -p "$W/scripts"
 cp "$HERE"/scripts/*.py "$HERE"/scripts/*.js "$W/scripts/"
@@ -121,14 +122,17 @@ if [ "${n:-0}" = 0 ]; then
 elif [ -s prev.html ]; then
   python3 "$HERE/notify.py" tg_notify.py prev.html dash.json tg.txt plan.json || echo "telegram step failed"
 fi
+python3 "$HERE/syncpush.py" prev_dash.json dash.json "$RUN0" || echo "sync push failed"
 python3 "$HERE/coach.py" dash.json || echo "coach step failed"
 # Backups of everything entered by hand (meals, weight, daily log, settings, plans, labs, reports…):
 #  - bak_db_<name>: refreshed each run, but only if the live copy did not suddenly shrink (a receiver glitch can never
 #    overwrite a good backup);
 #  - bak_db_<name>_<weekday>: one dated copy per weekday, written during the 03:00 UTC hour → 7 days of history;
 #  - bak_state_<weekday>: the raw Health history, same daily rotation, only if it decodes and is not smaller.
-WD="$(date -u +%a)"; HR="$(date -u +%H)"
-for c in meals body daily settings weekplan bike muscles labs reports insights lifts gbhrv; do
+# Backups run in the first 20 minutes of each hour only: a manual sync should not wait for them.
+WD="$(date -u +%a)"; HR="$(date -u +%H)"; MIN="$(date -u +%-M)"
+BK=""; [ "$MIN" -lt 20 ] && BK="meals body daily settings weekplan bike muscles labs reports insights lifts gbhrv"
+for c in $BK; do
   rx "action=state&name=db_$c" > live.json || continue
   rx "action=state&name=bak_db_$c" > bak.json || true
   if python3 - "$c" <<'PY'
@@ -148,7 +152,7 @@ PY
     [ "$HR" = "03" ] && post "bak_db_${c}_$WD" live.json >/dev/null || true
   fi
 done
-if [ "$HR" = "03" ]; then
+if [ "$HR" = "03" ] && [ "$MIN" -lt 20 ]; then
   rx "action=state&name=state" > state_live.txt || true
   rx "action=state&name=bak_state_$WD" > state_bak.txt || true
   python3 - <<'PY' && post "bak_state_$WD" state_live.txt >/dev/null || true
