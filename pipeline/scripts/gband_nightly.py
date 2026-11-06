@@ -22,7 +22,7 @@ BAD = (0, 255)
 # The server labels each day with the phone's current UTC offset in MINUTES ("timezone": 480 = UTC+8), even for data
 # the band recorded earlier on its old clock. CLOCK lists the band clock's offset (minutes) from a UTC instant onward;
 # block times and the server's sleep epochs are converted with it. Extend it when travelling (band clock follows the phone).
-CLOCK = [('2000-01-01 00:00', 0), ('2026-10-25 04:00', 480)]
+CLOCK = [('2000-01-01 00:00', 0), ('2026-10-25 04:00', 480), ('2026-11-06 12:00', 0)]
 
 
 def clock_at(local_naive):

@@ -70,7 +70,7 @@ if any(len(v) > 1 for v in _byid.values()):
 # ---- Everything below runs on the user's LOCAL clock: days, sleep windows, hours of the day, workout times. ----
 # Stored timestamps are UTC; TZ lists the local offset (minutes) from a UTC instant onward. Extend it when moving
 # time zone (same instants as CLOCK in gband_nightly.py). Morocco = UTC+0.
-TZ = [('2000-01-01 00:00:00', 0), ('2026-10-25 04:00:00', 480)]
+TZ = [('2000-01-01 00:00:00', 0), ('2026-10-25 04:00:00', 480), ('2026-11-06 12:00:00', 0)]
 def _shift(t):
  if not t:
   return t
