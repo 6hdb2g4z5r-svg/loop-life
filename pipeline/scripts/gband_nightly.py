@@ -339,6 +339,24 @@ def nightly(data):
     return dict(sorted(out.items()))
 
 
+def merge_nights(prev, res):
+    """Fold a fresh read (res) into the stored nights (prev), in place. A fresh read of a night replaces the stored one,
+    except when it is worse: a shorter sleep, or less HRV data. The G Band cloud can re-upload a day and drop the night's
+    5-min blocks (10 Nov 2026: 2 blocks left of ~88): that must never erase a night already scored."""
+    for k, v in res.items():
+        p = prev.setdefault(k, {})
+        if 'start' in v and p.get('start') and p['start'] != v['start'] and (p.get('asleep') or 0) > (v.get('asleep') or 0):
+            v = {a: b for a, b in v.items() if a in ('steps', 'dist')}  # never let a shorter sleep replace the stored night
+        if 'start' in v and p.get('hrv') is not None and (v.get('hrv') is None or (v.get('hrv_n') or 0) < 0.5 * (p.get('hrv_n') or 0)):
+            print(k, 'kept the stored night: this read has less HRV data', v.get('hrv_n'), '<', p.get('hrv_n'))
+            v = {a: b for a, b in v.items() if a in ('steps', 'dist')}
+        if 'start' in v:  # a fresh read of the night replaces the stored one entirely
+            for a in [a for a in p if a not in ('steps', 'dist')]:
+                del p[a]
+        p.update(v)
+    return prev
+
+
 if __name__ == '__main__':
     headers = json.load(open(sys.argv[1]))
     days = int(sys.argv[3]) if len(sys.argv) > 3 else 2
@@ -368,14 +386,7 @@ if __name__ == '__main__':
         prev = json.load(open(sys.argv[2]))
     except Exception:
         pass
-    for k, v in res.items():
-        p = prev.setdefault(k, {})
-        if 'start' in v and p.get('start') and p['start'] != v['start'] and (p.get('asleep') or 0) > (v.get('asleep') or 0):
-            v = {a: b for a, b in v.items() if a in ('steps', 'dist')}  # never let a shorter sleep replace the stored night
-        if 'start' in v:  # a fresh read of the night replaces the stored one entirely
-            for a in [a for a in p if a not in ('steps', 'dist')]:
-                del p[a]
-        p.update(v)
+    merge_nights(prev, res)
     json.dump(dict(sorted(prev.items())), open(sys.argv[2], 'w'), indent=1)
     for k, v in res.items():
         print(k, 'HRV', v.get('hrv'), 'ms (n', v.get('hrv_n'), ') RHR', v.get('rhr'), 'resp', v.get('resp'), 'steps', v.get('steps'))
