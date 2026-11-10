@@ -343,6 +343,8 @@ if __name__ == '__main__':
     headers = json.load(open(sys.argv[1]))
     days = int(sys.argv[3]) if len(sys.argv) > 3 else 2
     data = fetch(headers, days)
+    # which days the G Band cloud has, and the phone offset it labels them with (minutes): tells "night not uploaded yet" from a pipeline drop
+    print('G Band days', ' '.join(f"{d.get('date')}({d.get('timezone')})" for d in data))
     if os.environ.get('GBAND_RAW'):  # keep the raw read for offline checks
         json.dump(data, open(os.environ['GBAND_RAW'], 'w'))
     res = nightly(data)
