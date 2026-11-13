@@ -177,6 +177,11 @@ def bedtime():
 def sleep_debt():
     return sum(max(0, days[k]['need'] - days[k]['sl']['asleep']) for k in order[-7:] if days[k].get('sl'))
 
+# Supplements: the catalogue ids come from the app (Settings → Compléments); custom ones carry their own name.
+SUPP_FR = {'hb_ultraman': 'multivitamines', 'hb_omega3': 'oméga-3'}
+def supp_name(s):
+    return SUPP_FR.get(s.get('id')) or s.get('name') or 'complément'
+
 WK_FR = {'TraditionalStrengthTraining': 'Musculation', 'FunctionalStrengthTraining': 'Renforcement', 'Running': 'Course', 'Cycling': 'Vélo',
          'Tennis': 'Tennis', 'Padel': 'Padel', 'HighIntensityIntervalTraining': 'HIIT', 'Swimming': 'Natation', 'Yoga': 'Yoga',
          'Elliptical': 'Elliptique', 'Rowing': 'Rameur', 'CoreTraining': 'Gainage', 'Soccer': 'Football'}
@@ -274,6 +279,29 @@ if T in days and 7 <= H < 23:
             add('prot_eve', f'Encore {round(PROT_T - eat_p)} g de protéines', 'Pour le dîner : 200 g de poulet ou de poisson ≈ 50–60 g.', prio=4)
         if 19.5 <= H < 23 and eat_k > KCAL_T * 1.05:
             add('kcal_over', f'Calories : {fmt(eat_k)} / {fmt(KCAL_T)}', f'{fmt(eat_k - KCAL_T)} kcal au-dessus de ta cible. Rien de plus ce soir, ça se rattrape demain.', prio=4)
+
+    # 5b. Morning log: the supplements taken with breakfast (multivitamins, omega-3) and the espresso.
+    # A nudge at 11:00, a firmer reminder at noon if still nothing is ticked. One notification for both,
+    # so the phone is not hit twice at the same minute.
+    if 11 <= H < 13:
+        supps = [x for x in (prof.get('supps') or []) if x.get('on')]
+        dlog = docs('db_daily').get(T) or {}
+        taken = dlog.get('supp') or {}
+        miss = [supp_name(x) for x in supps if not taken.get(x.get('id'))]
+        no_caf = not (dlog.get('esp') or []) and not any(float(m.get('caffeine') or 0) > 0 for m in today_meals)
+        what = ' · '.join(miss + (['café'] if no_caf else []))
+        if what:
+            if H < 12:
+                add('supp_am', 'À cocher ce matin · ' + what,
+                    ('Tu les prends avec le petit-déjeuner. ' if miss else '') +
+                    ('Ouvre Nutrition dans Loop Life : coche ce qui est pris et ajoute ton espresso.' if miss and no_caf else
+                     'Ouvre Nutrition dans Loop Life et coche ce qui est pris.' if miss else
+                     'Ouvre Nutrition dans Loop Life et ajoute ton espresso.'), prio=3)
+            else:
+                add('supp_noon', 'Rappel · ' + what,
+                    'Toujours rien de noté pour ce matin. ' +
+                    ('Si tu les as pris, coche-les dans Nutrition ; sinon prends-les maintenant avec un repas.' if miss else
+                     'Ajoute-le dans Nutrition si tu en as pris.'), event=True, prio=3)
 
     # 6. Bedtime planner (wind-down)
     bed, wake, need = bedtime()
